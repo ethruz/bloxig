@@ -1,5 +1,5 @@
 // ============================================================
-// server.js — Figblox Express Entry Point
+// server.js — Bloxig Express Entry Point
 // Senior Architect Note: Keep this file thin. Logic lives in
 // routes/ and controllers/. This file only wires things up.
 // ============================================================
@@ -10,6 +10,7 @@ const session    = require('express-session');
 const MongoStore = require('connect-mongo');
 const passport   = require('passport');
 const path       = require('path');
+const helmet     = require('helmet'); // 1. Imported helmet properly here
 
 const connectDB  = require('./config/db');
 require('./config/passport')(passport);
@@ -21,7 +22,10 @@ const marketplaceRoutes = require('./routes/marketplace');
 const apiRoutes         = require('./routes/api');
 const webhookRoutes     = require('./routes/webhooks');
 
-const app = express();
+const app = express(); // 2. The 'app' variable is created HERE!
+
+// ── Security Headers ──────────────────────────────────────────
+app.use(helmet()); // 3. Safe to use helmet now that 'app' exists!
 
 // ── Connect Database ─────────────────────────────────────────
 connectDB();
@@ -36,7 +40,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ── Body Parsers ──────────────────────────────────────────────
 // NOTE: Stripe webhooks need raw body — mount BEFORE express.json()
 app.use('/api/webhooks', express.raw({ type: 'application/json' }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // Added a safety payload limit
 app.use(express.urlencoded({ extended: false }));
 
 // ── Session ───────────────────────────────────────────────────
@@ -64,7 +68,7 @@ app.use('/auth',        authRoutes);
 app.use('/dashboard',   dashboardRoutes);
 app.use('/marketplace', marketplaceRoutes);
 app.use('/api',         apiRoutes);
-app.use('/api/webhooks',webhookRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 // ── Landing Page ──────────────────────────────────────────────
 app.get('/', (req, res) => {
@@ -93,6 +97,6 @@ app.use((req, res) => {
 // ── Start Server ──────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`\n🚀 Figblox running at http://localhost:${PORT}`);
+  console.log(`\n🚀 Bloxig running at http://localhost:${PORT}`);
   console.log(`   Environment: ${process.env.NODE_ENV || 'development'}\n`);
 });

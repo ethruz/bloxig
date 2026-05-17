@@ -1,0 +1,26 @@
+{
+    "name": "Bloxig",
+    "id": "bloxig-figma-plugin",
+    "api": "1.0.0",
+    "main": "code.js",
+    "ui": "ui.html",
+    "documentAccess": "dynamic-page",
+    "networkAccess": {
+      "allowedDomains": [
+        "http://localhost:3000",
+        "https://bloxig.com",
+        "https://api.bloxig.com"
+      ],
+      "reasoning": "Bloxig needs to send Figma frame data to the Bloxig server and authenticate users."
+    },
+    "permissions": [
+      "currentuser",
+      "activeusers"
+    ],
+    "editorType": [
+      "figma",
+      "figjam"
+    ],
+    "containsPrivateApiUsage": false
+  }
+  

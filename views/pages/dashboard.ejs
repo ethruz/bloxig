@@ -1,0 +1,209 @@
+<%- include('../layout/header') %>
+
+<div style="max-width:1100px;margin:0 auto;padding:48px 28px;">
+
+  <!-- Page header -->
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:40px;gap:16px;flex-wrap:wrap;">
+    <div>
+      <h1 style="font-size:var(--text-2xl);letter-spacing:-0.03em;margin-bottom:4px;">Projects</h1>
+      <p style="font-size:var(--text-sm);color:var(--text-tertiary);">
+        <%= user.email %>
+        &nbsp;·&nbsp;
+        <span style="color:<%= user.subscription_status === 'Pro' ? 'var(--accent)' : user.subscription_status === 'Lifetime' ? 'var(--gold)' : 'var(--text-disabled)' %>">
+          <%= user.subscription_status %>
+        </span>
+        <% if (user.subscription_status === 'Free') { %>
+          &nbsp;·&nbsp; <span style="color:var(--text-disabled);">3 project limit</span>
+        <% } %>
+      </p>
+    </div>
+    <% if (user.subscription_status === 'Free') { %>
+      <a href="/#pricing" class="btn btn--accent">Upgrade to Pro</a>
+    <% } %>
+  </div>
+
+  <!-- API Token card -->
+  <div style="
+    background:var(--bg-subtle);
+    border:1px solid var(--border-faint);
+    border-radius:var(--r-lg);
+    padding:20px 24px;
+    margin-bottom:32px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    flex-wrap:wrap;
+  ">
+    <div>
+      <p style="font-size:var(--text-xs);color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Your API Token</p>
+      <p style="font-size:var(--text-xs);color:var(--text-secondary);">Use this in the Roblox Studio plugin and Figma plugin to authenticate.</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <code id="token-display" style="font-size:11px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:var(--r-sm);padding:6px 10px;color:var(--text-tertiary);">
+        ••••••••••••••••••••
+      </code>
+      <button onclick="fetchToken()" class="btn btn--ghost" style="height:30px;font-size:11px;padding:0 10px;">
+        Reveal
+      </button>
+    </div>
+  </div>
+
+  <hr class="divider" style="margin-bottom:32px;" />
+
+  <!-- Projects section -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+    <h2 style="font-size:var(--text-base);font-weight:500;letter-spacing:-0.01em;">
+      Your projects
+      <span style="color:var(--text-disabled);font-weight:400;margin-left:8px;font-size:var(--text-sm);">
+        <%= projects.length %><%= user.subscription_status === 'Free' ? '/3' : '' %>
+      </span>
+    </h2>
+  </div>
+
+  <% if (projects.length === 0) { %>
+
+    <div style="
+      border:1px dashed var(--border-base);
+      border-radius:var(--r-lg);
+      padding:64px 32px;
+      text-align:center;
+    ">
+      <div style="width:40px;height:40px;border-radius:var(--r-md);background:var(--bg-elevated);border:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <rect x="2" y="2" width="6" height="6" rx="1.5" fill="var(--text-tertiary)"/>
+          <rect x="10" y="2" width="6" height="6" rx="1.5" fill="var(--text-tertiary)"/>
+          <rect x="2" y="10" width="6" height="6" rx="1.5" fill="var(--text-tertiary)"/>
+          <rect x="10" y="10" width="6" height="6" rx="1.5" fill="var(--text-tertiary)" opacity="0.4"/>
+        </svg>
+      </div>
+      <p style="font-size:var(--text-base);color:var(--text-secondary);margin-bottom:6px;">No projects yet</p>
+      <p style="font-size:var(--text-sm);color:var(--text-tertiary);max-width:340px;margin:0 auto 24px;line-height:1.6;">
+        Export a Figma frame using the Bloxig plugin to create your first project.
+      </p>
+      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+        <code style="font-size:var(--text-xs);">POST /api/export</code>
+        <a href="/docs" class="btn btn--ghost" style="height:30px;font-size:12px;padding:0 12px;">Read the docs</a>
+      </div>
+    </div>
+
+  <% } else { %>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;">
+      <% projects.forEach(function(project) { %>
+
+        <div class="card card--interactive" style="display:flex;flex-direction:column;gap:16px;">
+
+          <!-- Project icon + name -->
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="
+              width:36px;height:36px;
+              border-radius:var(--r-md);
+              background:var(--accent-dim);
+              border:1px solid var(--accent-border);
+              display:flex;align-items:center;justify-content:center;
+              flex-shrink:0;
+            ">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <rect x="2" y="2" width="5" height="5" rx="1" fill="var(--accent)"/>
+                <rect x="9" y="2" width="5" height="5" rx="1" fill="var(--accent)"/>
+                <rect x="2" y="9" width="5" height="5" rx="1" fill="var(--accent)"/>
+                <rect x="9" y="9" width="5" height="5" rx="1" fill="var(--accent)" opacity="0.4"/>
+              </svg>
+            </div>
+            <div>
+              <h3 style="font-size:var(--text-base);font-weight:500;letter-spacing:-0.02em;"><%= project.name %></h3>
+              <p style="font-size:var(--text-xs);color:var(--text-tertiary);margin-top:2px;">
+                Updated <%= new Date(project.updatedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) %>
+              </p>
+            </div>
+          </div>
+
+          <!-- Project ID (copy for Roblox plugin) -->
+          <div style="background:var(--bg-elevated);border:1px solid var(--border-faint);border-radius:var(--r-sm);padding:10px 12px;">
+            <p style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Project ID — paste into Studio plugin</p>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+              <code style="font-size:11px;color:var(--text-secondary);word-break:break-all;"><%= project._id %></code>
+              <button
+                onclick="copyToClipboard('<%= project._id %>', this)"
+                style="
+                  height:24px;padding:0 8px;
+                  background:var(--bg-overlay);
+                  border:1px solid var(--border-base);
+                  border-radius:4px;
+                  font-size:10px;color:var(--text-tertiary);
+                  cursor:pointer;white-space:nowrap;
+                  transition:all 150ms;
+                "
+              >Copy</button>
+            </div>
+          </div>
+
+          <!-- Figma file ID if present -->
+          <% if (project.figma_file_id) { %>
+            <p style="font-size:var(--text-xs);color:var(--text-tertiary);">
+              Figma file: <code><%= project.figma_file_id %></code>
+            </p>
+          <% } %>
+
+        </div>
+
+      <% }) %>
+    </div>
+
+  <% } %>
+
+  <!-- Quick start guide -->
+  <div style="margin-top:48px;">
+    <h2 style="font-size:var(--text-base);font-weight:500;letter-spacing:-0.01em;margin-bottom:20px;">Quick start</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1px;background:var(--border-faint);border:1px solid var(--border-faint);border-radius:var(--r-lg);overflow:hidden;">
+
+      <% [
+        { step:'01', title:'Get your token', body:'Copy your API token above. You\'ll need it in both the Figma plugin and Roblox Studio plugin.' },
+        { step:'02', title:'Export from Figma', body:'Select a frame in Figma, run the Bloxig plugin, paste your token, and click Export.' },
+        { step:'03', title:'Import in Studio', body:'Open the Bloxig plugin in Roblox Studio. Paste your token + project ID, preview, then confirm.' }
+      ].forEach(function(s) { %>
+        <div style="background:var(--bg-base);padding:24px;display:flex;flex-direction:column;gap:10px;">
+          <span style="font-size:10px;color:var(--text-tertiary);font-family:var(--font-mono);letter-spacing:0.08em;"><%= s.step %></span>
+          <h3 style="font-size:var(--text-sm);font-weight:500;letter-spacing:-0.01em;"><%= s.title %></h3>
+          <p style="font-size:var(--text-xs);color:var(--text-tertiary);line-height:1.7;"><%= s.body %></p>
+        </div>
+      <% }) %>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+function copyToClipboard(text, btn) {
+  navigator.clipboard.writeText(text).then(function() {
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.style.color = 'var(--success)';
+    btn.style.borderColor = 'rgba(61,214,140,0.3)';
+    setTimeout(function() {
+      btn.textContent = orig;
+      btn.style.color = '';
+      btn.style.borderColor = '';
+    }, 2000);
+  });
+}
+
+function fetchToken() {
+  fetch('/api/token-reveal', { method: 'GET', credentials: 'include' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.token) {
+        document.getElementById('token-display').textContent = data.token;
+      }
+    })
+    .catch(() => {
+      // Fallback: direct curl instruction
+      document.getElementById('token-display').textContent =
+        'Use POST /api/token with your email+password';
+    });
+}
+</script>
+
+<%- include('../layout/footer') %>

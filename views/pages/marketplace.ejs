@@ -1,0 +1,83 @@
+<%- include('../layout/header') %>
+
+<div style="max-width:1100px;margin:0 auto;padding:48px 28px;">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:40px;flex-wrap:wrap;gap:16px;">
+    <div>
+      <h1 style="font-size:var(--text-3xl);letter-spacing:-0.03em;margin-bottom:8px;">Marketplace</h1>
+      <p style="font-size:var(--text-base);color:var(--text-secondary);">
+        Vectors, icon sets, and UI kits — ready to import into Roblox Studio.
+      </p>
+    </div>
+    <% if (!user) { %>
+      <a href="/auth/signup" class="btn btn--accent">Sign up to download</a>
+    <% } else if (user.subscription_status === 'Free') { %>
+      <a href="/#pricing" class="btn btn--ghost" style="border-color:var(--accent-border);color:var(--accent);">
+        Upgrade for Pro assets
+      </a>
+    <% } %>
+  </div>
+
+  <!-- Category tabs -->
+  <div style="display:flex;gap:2px;margin-bottom:36px;border-bottom:1px solid var(--border-faint);">
+    <% ['All','Vector','Icon','UIKit','Template'].forEach(function(cat) {
+      const active = category === cat;
+    %>
+      <a href="/marketplace<%= cat !== 'All' ? '?category=' + cat : '' %>"
+        style="
+          display:inline-flex;align-items:center;height:38px;padding:0 16px;
+          font-size:var(--text-sm);
+          font-weight:<%= active ? '500' : '400' %>;
+          color:<%= active ? 'var(--text-primary)' : 'var(--text-tertiary)' %>;
+          border-bottom:2px solid <%= active ? 'var(--text-primary)' : 'transparent' %>;
+          margin-bottom:-1px;
+          transition:color 150ms;
+          white-space:nowrap;
+        "
+      ><%= cat %></a>
+    <% }) %>
+  </div>
+
+  <!-- Assets grid -->
+  <% if (assets.length === 0) { %>
+    <div style="text-align:center;padding:80px 0;">
+      <p style="font-size:var(--text-base);color:var(--text-tertiary);margin-bottom:8px;">No assets in this category yet.</p>
+      <p style="font-size:var(--text-sm);color:var(--text-disabled);">Check back soon — new kits added weekly.</p>
+    </div>
+  <% } else { %>
+    <div style="margin-bottom:16px;">
+      <p style="font-size:var(--text-xs);color:var(--text-tertiary);">
+        <%= assets.length %> asset<%= assets.length !== 1 ? 's' : '' %>
+        <% if (category !== 'All') { %> in <%= category %><% } %>
+      </p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
+      <% assets.forEach(function(asset) { %>
+        <%- include('../partials/assetCard', { asset: asset }) %>
+      <% }) %>
+    </div>
+  <% } %>
+
+  <!-- Submit your kit CTA -->
+  <div style="
+    margin-top:64px;
+    padding:40px;
+    border:1px solid var(--border-faint);
+    border-radius:var(--r-xl);
+    background:var(--bg-subtle);
+    display:flex;align-items:center;justify-content:space-between;
+    gap:24px;flex-wrap:wrap;
+  ">
+    <div>
+      <h3 style="font-size:var(--text-xl);letter-spacing:-0.02em;margin-bottom:6px;">Sell your UI kit on Bloxig</h3>
+      <p style="font-size:var(--text-sm);color:var(--text-secondary);max-width:400px;line-height:1.7;">
+        Built a Figma template for Roblox devs? List it here and earn from every download.
+      </p>
+    </div>
+    <a href="mailto:hello@bloxig.com" class="btn btn--ghost btn--lg">Apply to list →</a>
+  </div>
+
+</div>
+
+<%- include('../layout/footer') %>

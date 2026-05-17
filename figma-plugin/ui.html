@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'self';
+           script-src 'unsafe-inline';
+           style-src 'unsafe-inline' https://fonts.googleapis.com;
+           font-src https://fonts.gstatic.com;
+           connect-src http://localhost:3000 https://bloxig.com https://api.bloxig.com;
+           img-src 'self' data: https:;">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&display=swap');
+ 
+  :root {
+    --bg:       #0f0f0f;
+    --surface:  #181818;
+    --border:   rgba(255,255,255,0.08);
+    --text:     #efefef;
+    --muted:    #777;
+    --accent:   #4f7bf7;
+    --success:  #3dd68c;
+    --danger:   #e5484d;
+    --gold:     #f5a623;
+    --r:        8px;
+  }
+ 
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+ 
+  body {
+    font-family: 'Geist', -apple-system, sans-serif;
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+ 
+  /* ── Header ───────────────────────── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .logo { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+  .logo-mark {
+    width: 20px; height: 20px; border-radius: 5px;
+    background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .logo-mark svg { width: 11px; height: 11px; fill: white; }
+  .plan-badge {
+    font-size: 10px; font-weight: 500;
+    padding: 2px 8px; border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.12);
+    color: var(--muted);
+  }
+  .plan-badge.pro    { border-color: rgba(79,123,247,0.3); color: var(--accent); }
+  .plan-badge.lifetime { border-color: rgba(245,166,35,0.3); color: var(--gold); }
+ 
+  /* ── User row ─────────────────────── */
+  .user-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: rgba(79,123,247,0.2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 500; color: var(--accent);
+    overflow: hidden; flex-shrink: 0;
+  }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .user-info { flex: 1; }
+  .user-name  { font-size: 12px; font-weight: 500; }
+  .user-email { font-size: 11px; color: var(--muted); }
+ 
+  /* ── Main content ─────────────────── */
+  .content { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+ 
+  /* ── Selection card ───────────────── */
+  .selection-card {
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 14px;
+    background: var(--surface);
+  }
+  .selection-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .selection-name  { font-size: 13px; font-weight: 500; color: var(--text); }
+  .selection-empty { font-size: 12px; color: var(--muted); font-style: italic; }
+  .selection-hint  { font-size: 11px; color: var(--muted); margin-top: 4px; }
+ 
+  /* ── Token input ──────────────────── */
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .field-row { display: flex; gap: 6px; }
+  input[type="text"], input[type="password"] {
+    flex: 1;
+    height: 34px; padding: 0 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    color: var(--text);
+    font-family: 'Geist', monospace;
+    font-size: 12px;
+    transition: border-color 150ms;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  .toggle-vis {
+    height: 34px; width: 34px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color 150ms, color 150ms;
+  }
+  .toggle-vis:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+ 
+  /* ── Buttons ──────────────────────── */
+  .btn {
+    height: 36px; padding: 0 14px;
+    border-radius: var(--r);
+    border: 1px solid transparent;
+    font-family: 'Geist', sans-serif;
+    font-size: 12px; font-weight: 500;
+    cursor: pointer;
+    transition: all 150ms;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .btn-primary { background: var(--text); color: #0c0c0c; border-color: var(--text); }
+  .btn-primary:hover:not(:disabled) { background: #d4d4d4; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-ghost { background: transparent; color: var(--muted); border-color: var(--border); }
+  .btn-ghost:hover { background: var(--surface); color: var(--text); border-color: rgba(255,255,255,0.15); }
+  .btn-full { width: 100%; }
+  .btn-accent { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-accent:hover { background: #6690f9; }
+  .btn-gold { background: var(--gold); color: #1a1200; border-color: var(--gold); }
+  .btn-gold:hover { background: #f7b93e; }
+ 
+  /* ── Status message ───────────────── */
+  .status {
+    padding: 10px 12px;
+    border-radius: var(--r);
+    font-size: 12px;
+    border: 1px solid transparent;
+    display: none;
+  }
+  .status.show { display: block; }
+  .status.progress { background: rgba(79,123,247,0.08); border-color: rgba(79,123,247,0.2); color: #7aa2f7; }
+  .status.success  { background: rgba(61,214,140,0.08); border-color: rgba(61,214,140,0.2); color: var(--success); }
+  .status.error    { background: rgba(229,72,77,0.08);  border-color: rgba(229,72,77,0.2);  color: var(--danger); }
+ 
+  /* ── Upgrade banner ───────────────── */
+  .upgrade-banner {
+    border: 1px solid rgba(245,166,35,0.2);
+    border-radius: var(--r);
+    padding: 12px;
+    background: rgba(245,166,35,0.04);
+  }
+  .upgrade-title { font-size: 12px; font-weight: 500; color: var(--gold); margin-bottom: 4px; }
+  .upgrade-body  { font-size: 11px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
+ 
+  /* ── Footer ───────────────────────── */
+  .footer {
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .footer-link { font-size: 11px; color: var(--muted); text-decoration: none; }
+  .footer-link:hover { color: var(--text); }
+ 
+  /* ── Loading spinner ──────────────── */
+  .spinner {
+    width: 12px; height: 12px;
+    border: 1.5px solid rgba(255,255,255,0.2);
+    border-top-color: var(--text);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+  .spinner.show { display: block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+ 
+  .divider { height: 1px; background: var(--border); }
+</style>
+</head>
+<body>
+ 
+<!-- Header -->
+<div class="header">
+  <div class="logo">
+    <div class="logo-mark">
+      <svg viewBox="0 0 12 12"><rect x="1" y="1" width="4" height="4" rx="1"/><rect x="7" y="1" width="4" height="4" rx="1"/><rect x="1" y="7" width="4" height="4" rx="1"/><rect x="7" y="7" width="4" height="4" rx="1" opacity="0.5"/></svg>
+    </div>
+    Bloxig
+  </div>
+  <span class="plan-badge" id="plan-badge">Free</span>
+</div>
+ 
+<!-- User row -->
+<div class="user-row" id="user-row" style="display:none;">
+  <div class="avatar" id="user-avatar">?</div>
+  <div class="user-info">
+    <div class="user-name" id="user-name">Loading...</div>
+    <div class="user-email" id="user-file">Figma user</div>
+  </div>
+</div>
+ 
+<!-- Content -->
+<div class="content">
+ 
+  <!-- Selection status -->
+  <div class="selection-card">
+    <div class="selection-label">Selected frame</div>
+    <div id="selection-display" class="selection-empty">No frame selected</div>
+    <div class="selection-hint" id="selection-hint">Select a Frame in Figma to export</div>
+  </div>
+ 
+  <!-- JWT Token input -->
+  <div class="field">
+    <label>Bloxig API Token</label>
+    <div class="field-row">
+      <input type="password" id="token-input" placeholder="Paste your token from bloxig.com/dashboard" autocomplete="off" spellcheck="false" />
+      <button class="toggle-vis" id="toggle-vis" title="Show/hide token">👁</button>
+    </div>
+  </div>
+ 
+  <!-- Status message -->
+  <div class="status" id="status-msg"></div>
+ 
+  <!-- Export button -->
+  <button class="btn btn-primary btn-full" id="export-btn" disabled>
+    <div class="spinner" id="spinner"></div>
+    <span id="export-label">Export to Roblox</span>
+  </button>
+ 
+  <div class="divider"></div>
+ 
+  <!-- Upgrade banner (shown for Free users) -->
+  <div class="upgrade-banner" id="upgrade-banner">
+    <div class="upgrade-title">Unlock Pro — $12/mo or $49 lifetime</div>
+    <div class="upgrade-body">Free accounts are limited to 3 projects. Upgrade for unlimited exports, Smart Merge history, and priority sync.</div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-accent" style="flex:1;" id="upgrade-pro-btn">Pro — $12/mo</button>
+      <button class="btn btn-gold" style="flex:1;" id="upgrade-lifetime-btn">Lifetime — $49</button>
+    </div>
+  </div>
+ 
+</div>
+ 
+<!-- Footer -->
+<div class="footer">
+  <a href="#" class="footer-link" id="dashboard-link">Dashboard ↗</a>
+  <a href="#" class="footer-link" id="docs-link">Docs ↗</a>
+  <button class="btn btn-ghost" id="cancel-btn" style="height:28px;font-size:11px;padding:0 10px;">Close</button>
+</div>
+ 
+<script>
+  // ── Security: only accept messages from Figma's origin ──────
+  const FIGMA_ORIGIN = 'https://www.figma.com';
+ 
+  // State
+  let state = {
+    hasSelection: false,
+    userId: null,
+    userName: null,
+    fileKey: null,
+    plan: 'Free'
+  };
+ 
+  // ── Receive messages from code.ts (Figma sandbox) ────────────
+  window.onmessage = function(event) {
+    // Security check — only trust messages from Figma iframe origin
+    // Note: in Figma plugins the parent IS Figma, so we check the source
+    if (event.source !== window.parent) return;
+ 
+    const msg = event.data?.pluginMessage;
+    if (!msg || typeof msg.type !== 'string') return;
+ 
+    switch (msg.type) {
+ 
+      case 'INIT': {
+        const p = msg.payload;
+        state.userId    = p.userId;
+        state.userName  = p.userName;
+        state.fileKey   = p.fileKey;
+        state.hasSelection = p.hasSelection;
+ 
+        // Show user row
+        document.getElementById('user-row').style.display = 'flex';
+        document.getElementById('user-name').textContent = p.userName || 'Figma User';
+        document.getElementById('user-file').textContent = `File: ${p.fileKey || 'local'}`;
+ 
+        // Avatar
+        const avatarEl = document.getElementById('user-avatar');
+        if (p.userPhotoUrl) {
+          avatarEl.innerHTML = `<img src="${p.userPhotoUrl}" alt="avatar" />`;
+        } else {
+          avatarEl.textContent = (p.userName || 'U')[0].toUpperCase();
+        }
+ 
+        updateSelectionUI(p.hasSelection, p.selectionName, p.selectionCount);
+        updateExportButton();
+        break;
+      }
+ 
+      case 'SELECTION_CHANGED': {
+        const p = msg.payload;
+        state.hasSelection = p.hasSelection;
+        updateSelectionUI(p.hasSelection, p.selectionName, p.selectionCount);
+        updateExportButton();
+        break;
+      }
+ 
+      case 'PROGRESS':
+        showStatus(msg.message, 'progress');
+        setLoading(true);
+        break;
+ 
+      case 'SUCCESS':
+        showStatus('✓ ' + msg.message, 'success');
+        setLoading(false);
+        // Store project ID for convenience
+        if (msg.projectId) {
+          document.getElementById('dashboard-link').href =
+            `http://localhost:3000/dashboard`;
+        }
+        break;
+ 
+      case 'ERROR':
+        showStatus('✗ ' + msg.message, 'error');
+        setLoading(false);
+        break;
+    }
+  };
+ 
+  // ── UI helpers ────────────────────────────────────────────────
+  function updateSelectionUI(hasSelection, name, count) {
+    const display = document.getElementById('selection-display');
+    const hint    = document.getElementById('selection-hint');
+ 
+    if (!hasSelection) {
+      display.className = 'selection-empty';
+      display.textContent = 'No frame selected';
+      hint.textContent = 'Select a Frame in Figma to export';
+    } else if (count > 1) {
+      display.className = 'selection-name';
+      display.textContent = `${count} items selected`;
+      hint.textContent = 'Select just one frame to export';
+    } else {
+      display.className = 'selection-name';
+      display.textContent = name || 'Unnamed frame';
+      hint.textContent = 'Ready to export';
+    }
+  }
+ 
+  function updateExportButton() {
+    const token  = document.getElementById('token-input').value.trim();
+    const btn    = document.getElementById('export-btn');
+    const ready  = state.hasSelection && token.length > 0;
+    btn.disabled = !ready;
+  }
+ 
+  function showStatus(msg, type) {
+    const el = document.getElementById('status-msg');
+    el.textContent = msg;
+    el.className = `status show ${type}`;
+  }
+ 
+  function setLoading(loading) {
+    document.getElementById('spinner').className = loading ? 'spinner show' : 'spinner';
+    document.getElementById('export-label').textContent = loading ? 'Exporting...' : 'Export to Roblox';
+    document.getElementById('export-btn').disabled = loading;
+  }
+ 
+  // ── Token input ───────────────────────────────────────────────
+  document.getElementById('token-input').addEventListener('input', updateExportButton);
+ 
+  document.getElementById('toggle-vis').addEventListener('click', function() {
+    const inp = document.getElementById('token-input');
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+    this.textContent = inp.type === 'password' ? '👁' : '🙈';
+  });
+ 
+  // ── Export button ─────────────────────────────────────────────
+  document.getElementById('export-btn').addEventListener('click', function() {
+    const token = document.getElementById('token-input').value.trim();
+    if (!token) {
+      showStatus('Please enter your Bloxig API token.', 'error');
+      return;
+    }
+    // Basic token format guard (JWT has 2 dots)
+    if (token.split('.').length !== 3) {
+      showStatus('Token format looks wrong. Copy it from your Bloxig dashboard.', 'error');
+      return;
+    }
+    parent.postMessage({
+      pluginMessage: { type: 'EXPORT_FRAME', token }
+    }, '*');
+  });
+ 
+  // ── Cancel button ─────────────────────────────────────────────
+  document.getElementById('cancel-btn').addEventListener('click', function() {
+    parent.postMessage({ pluginMessage: { type: 'CANCEL' } }, '*');
+  });
+ 
+  // ── Pro upgrade buttons — pass userId in URL ──────────────────
+  document.getElementById('upgrade-pro-btn').addEventListener('click', function() {
+    const uid = state.userId ? `?ref=${encodeURIComponent(state.userId)}` : '';
+    // Lemon Squeezy / Stripe checkout URL
+    window.open(`http://localhost:3000/checkout/pro${uid}`, '_blank');
+  });
+ 
+  document.getElementById('upgrade-lifetime-btn').addEventListener('click', function() {
+    const uid = state.userId ? `?ref=${encodeURIComponent(state.userId)}` : '';
+    window.open(`http://localhost:3000/checkout/lifetime${uid}`, '_blank');
+  });
+ 
+  // ── Dashboard / Docs links ────────────────────────────────────
+  document.getElementById('dashboard-link').addEventListener('click', function(e) {
+    e.preventDefault();
+    window.open('http://localhost:3000/dashboard', '_blank');
+  });
+  document.getElementById('docs-link').addEventListener('click', function(e) {
+    e.preventDefault();
+    window.open('http://localhost:3000/docs', '_blank');
+  });
+</script>
+</body>
+</html>

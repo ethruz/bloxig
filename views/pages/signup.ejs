@@ -1,0 +1,56 @@
+<%- include('../layout/header') %>
+
+<section style="min-height: calc(100vh - 56px); display: flex; align-items: center; justify-content: center; padding: 48px 20px;">
+  <div style="width: 100%; max-width: 360px;">
+
+    <div style="margin-bottom: 32px;">
+      <h1 style="font-size: var(--text-2xl); letter-spacing: -0.03em; margin-bottom: 6px;">Create your account</h1>
+      <p style="font-size: var(--text-sm); color: var(--text-secondary);">Free to start. No credit card required.</p>
+    </div>
+
+    <% if (error) { %>
+      <div style="
+        padding: 12px 14px;
+        background: rgba(229,72,77,0.08);
+        border: 1px solid rgba(229,72,77,0.2);
+        border-radius: var(--r-md);
+        font-size: var(--text-sm);
+        color: var(--danger);
+        margin-bottom: 20px;
+      ">
+        <%= error %>
+      </div>
+    <% } %>
+
+    <form action="/auth/signup" method="POST" style="display: flex; flex-direction: column; gap: 16px;">
+
+      <div class="form-field">
+        <label class="form-label" for="email">Email</label>
+        <input class="form-input" type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email" />
+      </div>
+
+      <div class="form-field">
+        <label class="form-label" for="password">Password</label>
+        <input class="form-input" type="password" id="password" name="password" placeholder="Min. 8 characters" minlength="8" required autocomplete="new-password" />
+        <p class="form-hint">Must be at least 8 characters.</p>
+      </div>
+
+      <button type="submit" class="btn btn--primary btn--full" style="height: 42px; margin-top: 4px;">
+        Create account
+      </button>
+
+    </form>
+
+    <p style="margin-top: 24px; font-size: var(--text-sm); color: var(--text-tertiary); text-align: center;">
+      Already have an account?
+      <a href="/auth/login" style="color: var(--text-secondary); text-decoration: underline; text-underline-offset: 3px;">Sign in</a>
+    </p>
+
+    <p style="margin-top: 16px; font-size: var(--text-xs); color: var(--text-disabled); text-align: center; line-height: 1.6;">
+      By creating an account you agree to our Terms of Service and Privacy Policy.
+    </p>
+
+  </div>
+</section>
+
+<%- include('../layout/footer') %>

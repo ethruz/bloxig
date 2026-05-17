@@ -1,0 +1,51 @@
+<%- include('../layout/header') %>
+
+<section style="min-height: calc(100vh - 56px); display: flex; align-items: center; justify-content: center; padding: 48px 20px;">
+  <div style="width: 100%; max-width: 360px;">
+
+    <div style="margin-bottom: 32px;">
+      <h1 style="font-size: var(--text-2xl); letter-spacing: -0.03em; margin-bottom: 6px;">Sign in</h1>
+      <p style="font-size: var(--text-sm); color: var(--text-secondary);">Welcome back to Bloxig.</p>
+    </div>
+
+    <% if (error) { %>
+      <div style="
+        padding: 12px 14px;
+        background: rgba(229,72,77,0.08);
+        border: 1px solid rgba(229,72,77,0.2);
+        border-radius: var(--r-md);
+        font-size: var(--text-sm);
+        color: var(--danger);
+        margin-bottom: 20px;
+      ">
+        <%= error %>
+      </div>
+    <% } %>
+
+    <form action="/auth/login" method="POST" style="display: flex; flex-direction: column; gap: 16px;">
+
+      <div class="form-field">
+        <label class="form-label" for="email">Email</label>
+        <input class="form-input" type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email" />
+      </div>
+
+      <div class="form-field">
+        <label class="form-label" for="password">Password</label>
+        <input class="form-input" type="password" id="password" name="password" placeholder="••••••••" required autocomplete="current-password" />
+      </div>
+
+      <button type="submit" class="btn btn--primary btn--full" style="height: 42px; margin-top: 4px;">
+        Sign in
+      </button>
+
+    </form>
+
+    <p style="margin-top: 24px; font-size: var(--text-sm); color: var(--text-tertiary); text-align: center;">
+      Don't have an account?
+      <a href="/auth/signup" style="color: var(--text-secondary); text-decoration: underline; text-underline-offset: 3px;">Create one</a>
+    </p>
+
+  </div>
+</section>
+
+<%- include('../layout/footer') %>

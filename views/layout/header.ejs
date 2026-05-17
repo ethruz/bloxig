@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %> — Bloxig</title>
+  <meta name="description" content="Bloxig — Export Figma layouts directly into Roblox Studio. No manual rebuilding." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="/css/global.css" />
+</head>
+<body>
+
+<header class="navbar" role="banner">
+  <div class="navbar__inner">
+
+    <!-- Logo -->
+    <a href="/" class="navbar__logo">
+      <div class="navbar__logo-mark" aria-hidden="true">
+        <svg viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg">
+          <rect x="1" y="1" width="4" height="4" rx="1"/>
+          <rect x="7" y="1" width="4" height="4" rx="1"/>
+          <rect x="1" y="7" width="4" height="4" rx="1"/>
+          <rect x="7" y="7" width="4" height="4" rx="1" opacity="0.5"/>
+        </svg>
+      </div>
+      Bloxig
+    </a>
+
+    <!-- Center nav — changes based on auth state -->
+    <nav class="navbar__nav" aria-label="Primary navigation">
+      <% if (user) { %>
+        <!-- Logged in nav -->
+        <a href="/marketplace" class="navbar__link">Marketplace</a>
+        <a href="/dashboard" class="navbar__link">Projects</a>
+        <a href="#" class="navbar__link">Docs</a>
+      <% } else { %>
+        <!-- Logged out nav -->
+        <a href="/marketplace" class="navbar__link">Marketplace</a>
+        <a href="/#how-it-works" class="navbar__link">How it works</a>
+        <a href="/#pricing" class="navbar__link">Pricing</a>
+        <a href="#" class="navbar__link">Docs</a>
+      <% } %>
+    </nav>
+
+    <!-- Right actions — changes based on auth state -->
+    <div class="navbar__actions">
+      <% if (user) { %>
+        <!-- Logged in: show plan badge + sign out -->
+        <span class="navbar__plan-badge navbar__plan-badge--<%= user.subscription_status.toLowerCase() %>">
+          <%= user.subscription_status %>
+        </span>
+        <a href="/auth/logout" class="btn btn--ghost">Sign out</a>
+      <% } else { %>
+        <!-- Logged out: show sign in + get started -->
+        <a href="/auth/login" class="btn btn--ghost">Sign in</a>
+        <a href="/auth/signup" class="btn btn--primary">Get started</a>
+      <% } %>
+    </div>
+
+  </div>
+</header>
+
+<main>

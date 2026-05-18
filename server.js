@@ -24,6 +24,10 @@ const profileRoutes     = require('./routes/profile');
 
 const app = express();
 
+// ── Trust Proxy for Production Cookie Session delivery ────────
+// Essential for Render load balancers to accurately deliver HTTPS cookies
+app.set('trust proxy', 1);
+
 // ── Connect Database ──────────────────────────────────────────
 connectDB();
 

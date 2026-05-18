@@ -1,56 +1,202 @@
 <%- include('../layout/header') %>
 
-<section style="min-height: calc(100vh - 56px); display: flex; align-items: center; justify-content: center; padding: 48px 20px;">
-  <div style="width: 100%; max-width: 360px;">
+<section style="min-height:calc(100vh - 56px);display:flex;align-items:center;justify-content:center;padding:48px 20px;">
+  <div style="width:100%;max-width:480px;">
 
-    <div style="margin-bottom: 32px;">
-      <h1 style="font-size: var(--text-2xl); letter-spacing: -0.03em; margin-bottom: 6px;">Create your account</h1>
-      <p style="font-size: var(--text-sm); color: var(--text-secondary);">Free to start. No credit card required.</p>
+    <div style="margin-bottom:32px;">
+      <h1 style="font-size:var(--text-2xl);letter-spacing:-0.03em;margin-bottom:6px;">Create your account</h1>
+      <p style="font-size:var(--text-sm);color:var(--text-secondary);">Free to start. No credit card required.</p>
     </div>
 
-    <% if (error) { %>
-      <div style="
-        padding: 12px 14px;
-        background: rgba(229,72,77,0.08);
-        border: 1px solid rgba(229,72,77,0.2);
-        border-radius: var(--r-md);
-        font-size: var(--text-sm);
-        color: var(--danger);
-        margin-bottom: 20px;
-      ">
-        <%= error %>
-      </div>
-    <% } %>
+    <form action="/auth/signup" method="POST" id="signupForm" style="display:flex;flex-direction:column;gap:16px;" novalidate>
 
-    <form action="/auth/signup" method="POST" style="display: flex; flex-direction: column; gap: 16px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-field">
+          <label class="form-label" for="firstName">First name</label>
+          <input class="form-input" type="text" id="firstName" name="firstName"
+            placeholder="Lumu" required maxlength="50"
+            value="<%= typeof formData !== 'undefined' && formData.firstName ? formData.firstName : '' %>" />
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="lastName">Last name</label>
+          <input class="form-input" type="text" id="lastName" name="lastName"
+            placeholder="Sharma" required maxlength="50"
+            value="<%= typeof formData !== 'undefined' && formData.lastName ? formData.lastName : '' %>" />
+        </div>
+      </div>
 
       <div class="form-field">
         <label class="form-label" for="email">Email</label>
-        <input class="form-input" type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email" />
+        <input class="form-input" type="email" id="email" name="email"
+          placeholder="you@example.com" required autocomplete="email"
+          value="<%= typeof formData !== 'undefined' && formData.email ? formData.email : '' %>" />
+        <p id="emailError" style="font-size:10px;margin-top:4px;color:var(--danger);display:none;">✗ Please enter a valid email address</p>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label" for="country">Country</label>
+        <select class="form-input" id="country" name="country" required
+          style="cursor:pointer;appearance:none;background-image:url('data:image/svg+xml,%3Csvg width=\"10\" height=\"6\" viewBox=\"0 0 10 6\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"%3E%3Cpath d=\"M1 1l4 4 4-4\" stroke=\"%23555\" stroke-width=\"1.5\" stroke-linecap=\"round\"/%3E%3C/svg%3E');background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;">
+          <option value="" disabled <%= (typeof formData === 'undefined' || !formData.country) ? 'selected' : '' %>>Select your country</option>
+          <% countries.forEach(function(c) { %>
+            <option value="<%= c %>" <%= (typeof formData !== 'undefined' && formData.country === c) ? 'selected' : '' %>><%= c %></option>
+          <% }) %>
+        </select>
       </div>
 
       <div class="form-field">
         <label class="form-label" for="password">Password</label>
-        <input class="form-input" type="password" id="password" name="password" placeholder="Min. 8 characters" minlength="8" required autocomplete="new-password" />
-        <p class="form-hint">Must be at least 8 characters.</p>
+        <div style="position:relative;">
+          <input class="form-input" type="password" id="password" name="password"
+            placeholder="Min 8 chars, must include A-Z, a-z, 0-9, symbol"
+            required minlength="8" maxlength="20"
+            autocomplete="new-password"
+            style="padding-right:44px;" />
+          <button type="button" id="togglePass"
+            style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:14px;padding:4px;">
+            👁
+          </button>
+        </div>
+
+        <div style="margin-top:8px;">
+          <div style="display:flex;gap:3px;margin-bottom:5px;">
+            <div id="s1" style="height:3px;flex:1;border-radius:2px;background:var(--border-base);transition:background 200ms;"></div>
+            <div id="s2" style="height:3px;flex:1;border-radius:2px;background:var(--border-base);transition:background 200ms;"></div>
+            <div id="s3" style="height:3px;flex:1;border-radius:2px;background:var(--border-base);transition:background 200ms;"></div>
+            <div id="s4" style="height:3px;flex:1;border-radius:2px;background:var(--border-base);transition:background 200ms;"></div>
+          </div>
+          <p id="strengthText" style="font-size:10px;color:var(--text-tertiary);">
+            8–20 characters · uppercase · lowercase · number · symbol
+          </p>
+        </div>
       </div>
 
-      <button type="submit" class="btn btn--primary btn--full" style="height: 42px; margin-top: 4px;">
+      <div class="form-field">
+        <label class="form-label" for="confirmPassword">Confirm password</label>
+        <input class="form-input" type="password" id="confirmPassword" name="confirmPassword"
+          placeholder="Repeat your password" required maxlength="20"
+          autocomplete="new-password" />
+        <p id="matchMsg" style="font-size:10px;margin-top:4px;display:none;"></p>
+      </div>
+
+      <button type="submit" id="submitBtn" class="btn btn--primary btn--full" style="height:44px;margin-top:4px;" disabled>
         Create account
       </button>
 
     </form>
 
-    <p style="margin-top: 24px; font-size: var(--text-sm); color: var(--text-tertiary); text-align: center;">
+    <p style="margin-top:24px;font-size:var(--text-sm);color:var(--text-tertiary);text-align:center;">
       Already have an account?
-      <a href="/auth/login" style="color: var(--text-secondary); text-decoration: underline; text-underline-offset: 3px;">Sign in</a>
+      <a href="/auth/login" style="color:var(--text-secondary);text-decoration:underline;text-underline-offset:3px;">Sign in</a>
     </p>
 
-    <p style="margin-top: 16px; font-size: var(--text-xs); color: var(--text-disabled); text-align: center; line-height: 1.6;">
+    <p style="margin-top:12px;font-size:10px;color:var(--text-disabled);text-align:center;line-height:1.6;">
       By creating an account you agree to our Terms of Service and Privacy Policy.
     </p>
 
   </div>
 </section>
+
+<script>
+// ── Password visibility toggle ──────────────────────────────────
+const toggleBtn = document.getElementById('togglePass');
+const passInput = document.getElementById('password');
+if (toggleBtn && passInput) {
+  toggleBtn.addEventListener('click', () => {
+    const isPass = passInput.type === 'password';
+    passInput.type = isPass ? 'text' : 'password';
+    toggleBtn.textContent = isPass ? '🙈' : '👁';
+  });
+}
+
+// ── Password strength meter ────────────────────────────────────
+function getStrength(pwd) {
+  let score = 0;
+  if (pwd.length >= 8)                         score++;
+  if (/[A-Z]/.test(pwd))                       score++;
+  if (/[a-z]/.test(pwd) && /\d/.test(pwd))     score++;
+  if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd)) score++;
+  return score;
+}
+
+const bars   = [document.getElementById('s1'), document.getElementById('s2'),
+                document.getElementById('s3'), document.getElementById('s4')];
+const colors = ['#e5484d', '#f5a623', '#4f7bf7', '#3dd68c'];
+const labels = ['Too weak', 'Getting there', 'Almost strong', 'Strong ✓'];
+const strengthText = document.getElementById('strengthText');
+
+passInput && passInput.addEventListener('input', () => {
+  const score = getStrength(passInput.value);
+  bars.forEach((b, i) => {
+    b.style.background = i < score ? colors[score - 1] : 'var(--border-base)';
+  });
+  if (passInput.value.length === 0) {
+    strengthText.textContent = '8–20 characters · uppercase · lowercase · number · symbol';
+    strengthText.style.color = 'var(--text-tertiary)';
+  } else {
+    strengthText.textContent = labels[score - 1] || 'Too weak';
+    strengthText.style.color = colors[score - 1] || '#e5484d';
+  }
+  validateForm();
+});
+
+// ── Confirm password match ─────────────────────────────────────
+const confirmInput = document.getElementById('confirmPassword');
+const matchMsg     = document.getElementById('matchMsg');
+
+confirmInput && confirmInput.addEventListener('input', () => {
+  if (!confirmInput.value) {
+    matchMsg.style.display = 'none';
+    return;
+  }
+  const match = passInput.value === confirmInput.value;
+  matchMsg.style.display  = 'block';
+  matchMsg.textContent    = match ? '✓ Passwords match' : '✗ Passwords do not match';
+  matchMsg.style.color    = match ? 'var(--success)' : 'var(--danger)';
+  validateForm();
+});
+
+// ── Enable submit only when form is valid ──────────────────────
+const submitBtn = document.getElementById('submitBtn');
+const emailEl   = document.getElementById('email');
+const emailError = document.getElementById('emailError');
+
+function validateForm() {
+  const firstName = document.getElementById('firstName').value.trim();
+  const lastName  = document.getElementById('lastName').value.trim();
+  const email     = emailEl.value.trim();
+  const country   = document.getElementById('country').value;
+  const pwd       = passInput.value;
+  const confirm   = confirmInput.value;
+
+  const emailValid   = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const pwdValid     = getStrength(pwd) === 4 && pwd.length <= 20;
+  const confirmValid = pwd === confirm && confirm.length > 0;
+
+  if (email.length > 0) {
+    if (!emailValid) {
+      emailError.style.display = 'block';
+      emailEl.style.borderColor = 'var(--danger)';
+    } else {
+      emailError.style.display = 'none';
+      emailEl.style.borderColor = '';
+    }
+  } else {
+    emailError.style.display = 'none';
+    emailEl.style.borderColor = '';
+  }
+
+  const allValid = firstName && lastName && emailValid && country && pwdValid && confirmValid;
+  submitBtn.disabled = !allValid;
+  submitBtn.style.opacity = allValid ? '1' : '0.5';
+}
+
+// Attach validation to all fields
+['firstName','lastName','email','country'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', validateForm);
+  if (el) el.addEventListener('change', validateForm);
+});
+</script>
 
 <%- include('../layout/footer') %>

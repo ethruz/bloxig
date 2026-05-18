@@ -1,26 +1,19 @@
 {
-    "name": "Bloxig",
-    "id": "bloxig-figma-plugin",
-    "api": "1.0.0",
-    "main": "code.js",
-    "ui": "ui.html",
-    "documentAccess": "dynamic-page",
-    "networkAccess": {
-      "allowedDomains": [
-        "http://localhost:3000",
-        "https://bloxig.com",
-        "https://api.bloxig.com"
-      ],
-      "reasoning": "Bloxig needs to send Figma frame data to the Bloxig server and authenticate users."
-    },
-    "permissions": [
-      "currentuser",
-      "activeusers"
+  "name": "Bloxig",
+  "id": "bloxig-figma-plugin-v1",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": [
+      "https://bloxig.onrender.com",
+      "http://localhost:3000"
     ],
-    "editorType": [
-      "figma",
-      "figjam"
-    ],
-    "containsPrivateApiUsage": false
-  }
-  
+    "reasoning": "Bloxig sends Figma frame data to the Bloxig server for Roblox Studio import."
+  },
+  "permissions": [
+    "currentuser"
+  ],
+  "editorType": ["figma"]
+}

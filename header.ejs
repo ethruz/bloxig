@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %> — Bloxig</title>
+  <meta name="description" content="Bloxig — Export Figma layouts directly into Roblox Studio." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="/css/global.css" />
+  <style>
+    /* ── Flash messages ─────────────────────────── */
+    .flash {
+      padding: 12px 20px;
+      font-size: var(--text-sm);
+      border-radius: 0;
+      border-bottom: 1px solid transparent;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: slideDown 0.3s var(--ease);
+    }
+    @keyframes slideDown {
+      from { transform: translateY(-100%); opacity: 0; }
+      to   { transform: translateY(0);     opacity: 1; }
+    }
+    .flash--error {
+      background: rgba(229,72,77,0.08);
+      border-color: rgba(229,72,77,0.2);
+      color: var(--danger);
+    }
+    .flash--success {
+      background: rgba(61,214,140,0.08);
+      border-color: rgba(61,214,140,0.25);
+      color: var(--success);
+    }
+    .flash__close {
+      margin-left: auto;
+      background: none;
+      border: none;
+      color: inherit;
+      opacity: 0.6;
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      padding: 0 4px;
+    }
+    .flash__close:hover { opacity: 1; }
+
+    /* ── Profile dropdown ───────────────────────── */
+    .profile-menu { position: relative; }
+
+    .profile-trigger {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 8px 4px 4px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-base);
+      border-radius: var(--r-full);
+      cursor: pointer;
+      transition: all var(--dur) var(--ease);
+    }
+    .profile-trigger:hover {
+      border-color: var(--border-strong);
+      background: var(--bg-elevated);
+    }
+
+    .avatar-circle {
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 600;
+      color: #fff;
+      flex-shrink: 0;
+      letter-spacing: 0.02em;
+    }
+
+    .profile-name {
+      font-size: var(--text-xs);
+      font-weight: 500;
+      color: var(--text-secondary);
+      max-width: 80px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .profile-chevron {
+      color: var(--text-tertiary);
+      font-size: 10px;
+      transition: transform var(--dur) var(--ease);
+    }
+    .profile-menu.open .profile-chevron { transform: rotate(180deg); }
+
+    .profile-dropdown {
+      position: absolute;
+      right: 0; top: calc(100% + 8px);
+      width: 220px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-base);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-6px);
+      transition: all var(--dur) var(--ease);
+      z-index: 200;
+    }
+    .profile-menu.open .profile-dropdown {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+
+    .dropdown-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-faint);
+    }
+    .dropdown-email {
+      font-size: var(--text-xs);
+      color: var(--text-tertiary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .dropdown-plan {
+      font-size: 10px;
+      margin-top: 2px;
+      font-weight: 500;
+    }
+    .dropdown-plan.free     { color: var(--text-disabled); }
+    .dropdown-plan.pro      { color: var(--accent); }
+    .dropdown-plan.lifetime { color: var(--gold); }
+
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+      transition: all var(--dur) var(--ease);
+      text-decoration: none;
+    }
+    .dropdown-item:hover {
+      background: var(--bg-overlay);
+      color: var(--text-primary);
+    }
+    .dropdown-item--danger { color: var(--danger); }
+    .dropdown-item--danger:hover { background: rgba(229,72,77,0.08); }
+
+    .dropdown-divider {
+      height: 1px;
+      background: var(--border-faint);
+      margin: 4px 0;
+    }
+  </style>
+</head>
+<body>
+
+<header class="navbar" role="banner">
+  <div class="navbar__inner">
+
+    <!-- Logo -->
+    <a href="/" class="navbar__logo">
+      <div class="navbar__logo-mark" aria-hidden="true">
+        <svg viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg">
+          <rect x="1" y="1" width="4" height="4" rx="1"/>
+          <rect x="7" y="1" width="4" height="4" rx="1"/>
+          <rect x="1" y="7" width="4" height="4" rx="1"/>
+          <rect x="7" y="7" width="4" height="4" rx="1" opacity="0.5"/>
+        </svg>
+      </div>
+      Bloxig
+    </a>
+
+    <!-- Center nav -->
+    <nav class="navbar__nav" aria-label="Primary navigation">
+      <% if (user) { %>
+        <a href="/marketplace" class="navbar__link">Marketplace</a>
+        <a href="/dashboard"   class="navbar__link">Projects</a>
+        <a href="/docs"        class="navbar__link">Docs</a>
+      <% } else { %>
+        <a href="/marketplace"    class="navbar__link">Marketplace</a>
+        <a href="/#how-it-works"  class="navbar__link">How it works</a>
+        <a href="/#pricing"       class="navbar__link">Pricing</a>
+        <a href="/docs"           class="navbar__link">Docs</a>
+      <% } %>
+    </nav>
+
+    <!-- Right actions -->
+    <div class="navbar__actions">
+      <% if (user) { %>
+
+        <!-- Profile dropdown -->
+        <div class="profile-menu" id="profileMenu">
+          <button class="profile-trigger" id="profileTrigger" aria-expanded="false" aria-haspopup="true">
+            <div class="avatar-circle"><%= user.initials || (user.firstName ? user.firstName[0].toUpperCase() : 'U') %></div>
+            <span class="profile-name"><%= user.firstName || user.email.split('@')[0] %></span>
+            <span class="profile-chevron">▾</span>
+          </button>
+
+          <div class="profile-dropdown" id="profileDropdown" role="menu">
+
+            <div class="dropdown-header">
+              <div style="font-size:var(--text-sm);font-weight:500;color:var(--text-primary);margin-bottom:2px;">
+                <%= (user.firstName || '') + ' ' + (user.lastName || '') %>
+              </div>
+              <div class="dropdown-email"><%= user.email %></div>
+              <div class="dropdown-plan <%= user.subscription_status.toLowerCase() %>">
+                <%= user.subscription_status %> plan
+              </div>
+            </div>
+
+            <a href="/dashboard"       class="dropdown-item" role="menuitem">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="4" height="4" rx="1" fill="currentColor"/><rect x="9" y="1" width="4" height="4" rx="1" fill="currentColor"/><rect x="1" y="9" width="4" height="4" rx="1" fill="currentColor"/><rect x="9" y="9" width="4" height="4" rx="1" fill="currentColor" opacity="0.4"/></svg>
+              Dashboard
+            </a>
+            <a href="/profile/account"   class="dropdown-item" role="menuitem">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="5" r="3" stroke="currentColor" stroke-width="1.2"/><path d="M1 13c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+              Account details
+            </a>
+            <a href="/profile/security"  class="dropdown-item" role="menuitem">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="3" y="6" width="8" height="7" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M5 6V4a2 2 0 014 0v2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+              Security
+            </a>
+            <a href="/profile/billing"   class="dropdown-item" role="menuitem">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="3" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M1 6h12" stroke="currentColor" stroke-width="1.2"/></svg>
+              Billing
+            </a>
+            <a href="/profile/developer" class="dropdown-item" role="menuitem">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M4 4L1 7l3 3M10 4l3 3-3 3M8 2l-2 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Developer / API
+            </a>
+
+            <% if (user.subscription_status === 'Free') { %>
+              <div class="dropdown-divider"></div>
+              <a href="/#pricing" class="dropdown-item" style="color:var(--accent);" role="menuitem">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1l1.8 3.6L13 5.3l-3 2.9.7 4.1L7 10.4l-3.7 1.9.7-4.1-3-2.9 4.2-.7L7 1z" fill="currentColor"/></svg>
+                Upgrade to Pro
+              </a>
+            <% } %>
+
+            <div class="dropdown-divider"></div>
+            <a href="/auth/logout" class="dropdown-item dropdown-item--danger" role="menuitem">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 7H2M9 7l-2-2M9 7l-2 2M5 2H3a1 1 0 00-1 1v8a1 1 0 001 1h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Sign out
+            </a>
+
+          </div>
+        </div>
+
+      <% } else { %>
+        <a href="/auth/login"  class="btn btn--ghost">Sign in</a>
+        <a href="/auth/signup" class="btn btn--primary">Get started</a>
+      <% } %>
+    </div>
+
+  </div>
+</header>
+
+<!-- Flash messages -->
+<% if (typeof error !== 'undefined' && error) { %>
+  <div class="flash flash--error" id="flashMsg" role="alert">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="flex-shrink:0;"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M7 4v3M7 9.5v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    <%= error %>
+    <button class="flash__close" onclick="this.parentElement.remove()" aria-label="Dismiss">✕</button>
+  </div>
+<% } %>
+<% if (typeof success !== 'undefined' && success) { %>
+  <div class="flash flash--success" id="flashMsg" role="alert">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="flex-shrink:0;"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 7l2 2 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <%= success %>
+    <button class="flash__close" onclick="this.parentElement.remove()" aria-label="Dismiss">✕</button>
+  </div>
+<% } %>
+
+<script>
+  // Profile dropdown toggle
+  const menu    = document.getElementById('profileMenu');
+  const trigger = document.getElementById('profileTrigger');
+  if (menu && trigger) {
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = menu.classList.toggle('open');
+      trigger.setAttribute('aria-expanded', open);
+    });
+    document.addEventListener('click', () => {
+      menu.classList.remove('open');
+      trigger && trigger.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  // Auto-dismiss flash after 5 seconds
+  const flash = document.getElementById('flashMsg');
+  if (flash) {
+    setTimeout(() => {
+      flash.style.transition = 'opacity 0.4s';
+      flash.style.opacity = '0';
+      setTimeout(() => flash.remove(), 400);
+    }, 5000);
+  }
+</script>
+
+<main>

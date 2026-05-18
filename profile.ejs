@@ -1,0 +1,387 @@
+<%- include('../layout/header') %>
+
+<div style="max-width:900px;margin:0 auto;padding:48px 28px;">
+
+  <!-- Page header -->
+  <div style="margin-bottom:40px;">
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:6px;">
+      <!-- Avatar circle -->
+      <div style="
+        width:52px;height:52px;border-radius:50%;
+        background:var(--accent);
+        display:flex;align-items:center;justify-content:center;
+        font-size:18px;font-weight:600;color:#fff;
+        flex-shrink:0;letter-spacing:0.02em;
+      ">
+        <%= user.firstName ? user.firstName[0].toUpperCase() : 'U' %><%= user.lastName ? user.lastName[0].toUpperCase() : '' %>
+      </div>
+      <div>
+        <h1 style="font-size:var(--text-2xl);letter-spacing:-0.03em;margin-bottom:2px;">
+          <%= user.firstName %> <%= user.lastName %>
+        </h1>
+        <p style="font-size:var(--text-sm);color:var(--text-tertiary);">
+          @<%= user.username || user.email.split('@')[0] %>
+          &nbsp;·&nbsp;
+          <span style="color:<%= user.subscription_status === 'Pro' ? 'var(--accent)' : user.subscription_status === 'Lifetime' ? 'var(--gold)' : 'var(--text-disabled)' %>">
+            <%= user.subscription_status %>
+          </span>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab navigation -->
+  <div style="display:flex;gap:2px;border-bottom:1px solid var(--border-faint);margin-bottom:40px;">
+    <% [
+      { id:'account',   label:'Account',    icon:'👤' },
+      { id:'security',  label:'Security',   icon:'🔒' },
+      { id:'billing',   label:'Billing',    icon:'💳' },
+      { id:'developer', label:'Developer',  icon:'⚡' }
+    ].forEach(function(t) { %>
+      <a href="/profile/<%= t.id %>"
+        style="
+          display:inline-flex;align-items:center;gap:6px;
+          height:40px;padding:0 16px;
+          font-size:var(--text-sm);
+          font-weight:<%= tab === t.id ? '500' : '400' %>;
+          color:<%= tab === t.id ? 'var(--text-primary)' : 'var(--text-tertiary)' %>;
+          border-bottom:2px solid <%= tab === t.id ? 'var(--text-primary)' : 'transparent' %>;
+          margin-bottom:-1px;transition:color 150ms;white-space:nowrap;
+        "
+      ><%= t.label %></a>
+    <% }) %>
+  </div>
+
+  <!-- ══════════════════ ACCOUNT TAB ══════════════════ -->
+  <% if (tab === 'account') { %>
+
+    <form action="/profile/update" method="POST" style="display:flex;flex-direction:column;gap:20px;max-width:520px;">
+
+      <h2 style="font-size:var(--text-lg);letter-spacing:-0.02em;margin-bottom:4px;">Account details</h2>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-field">
+          <label class="form-label">First name</label>
+          <input class="form-input" type="text" name="firstName"
+            value="<%= user.firstName || '' %>" maxlength="50" required />
+        </div>
+        <div class="form-field">
+          <label class="form-label">Last name</label>
+          <input class="form-input" type="text" name="lastName"
+            value="<%= user.lastName || '' %>" maxlength="50" required />
+        </div>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label">Email</label>
+        <input class="form-input" type="email" value="<%= user.email %>" disabled
+          style="opacity:0.5;cursor:not-allowed;" />
+        <p class="form-hint">Email cannot be changed.</p>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label">Username</label>
+        <input class="form-input" type="text" value="@<%= user.username || user.email.split('@')[0] %>" disabled
+          style="opacity:0.5;cursor:not-allowed;" />
+      </div>
+
+      <div class="form-field">
+        <label class="form-label">Country</label>
+        <select class="form-input" name="country"
+          style="cursor:pointer;appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23555' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E\");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;">
+          <option value="">Select country</option>
+          <% countries.forEach(function(c) { %>
+            <option value="<%= c %>" <%= user.country === c ? 'selected' : '' %>><%= c %></option>
+          <% }) %>
+        </select>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label">Bio <span style="color:var(--text-disabled);font-size:10px;">(optional)</span></label>
+        <textarea class="form-input" name="bio" maxlength="200" rows="2"
+          style="height:auto;padding:10px 14px;resize:vertical;"
+          placeholder="Roblox developer, UI designer..."><%= user.bio || '' %></textarea>
+      </div>
+
+      <!-- Member info -->
+      <div style="background:var(--bg-elevated);border:1px solid var(--border-faint);border-radius:var(--r-md);padding:14px 16px;display:flex;gap:24px;flex-wrap:wrap;">
+        <div>
+          <p style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px;">Member since</p>
+          <p style="font-size:var(--text-sm);color:var(--text-secondary);">
+            <%= new Date(user.createdAt).toLocaleDateString('en-US',{month:'long',year:'numeric'}) %>
+          </p>
+        </div>
+        <div>
+          <p style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px;">Total logins</p>
+          <p style="font-size:var(--text-sm);color:var(--text-secondary);"><%= user.loginCount || 1 %></p>
+        </div>
+        <% if (user.lastLogin) { %>
+        <div>
+          <p style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px;">Last login</p>
+          <p style="font-size:var(--text-sm);color:var(--text-secondary);">
+            <%= new Date(user.lastLogin).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) %>
+          </p>
+        </div>
+        <% } %>
+      </div>
+
+      <button type="submit" class="btn btn--primary" style="height:40px;width:fit-content;">
+        Save changes
+      </button>
+
+    </form>
+
+  <!-- ══════════════════ SECURITY TAB ══════════════════ -->
+  <% } else if (tab === 'security') { %>
+
+    <div style="max-width:480px;">
+      <h2 style="font-size:var(--text-lg);letter-spacing:-0.02em;margin-bottom:4px;">Change password</h2>
+      <p style="font-size:var(--text-sm);color:var(--text-secondary);margin-bottom:28px;">
+        Use a strong password with uppercase, lowercase, numbers, and symbols.
+      </p>
+
+      <form action="/profile/password" method="POST" style="display:flex;flex-direction:column;gap:16px;">
+
+        <div class="form-field">
+          <label class="form-label">Current password</label>
+          <input class="form-input" type="password" name="currentPassword"
+            placeholder="Your current password" required />
+        </div>
+
+        <div class="form-field">
+          <label class="form-label">New password</label>
+          <input class="form-input" type="password" name="newPassword" id="newPwd"
+            placeholder="8–20 chars, A-Z, a-z, 0-9, symbol" required
+            minlength="8" maxlength="20" />
+          <!-- Strength bar -->
+          <div style="display:flex;gap:3px;margin-top:8px;">
+            <div id="ps1" style="height:3px;flex:1;border-radius:2px;background:var(--border-base);transition:background 200ms;"></div>
+            <div id="ps2" style="height:3px;flex:1;border-radius:2px;background:var(--border-base);transition:background 200ms;"></div>
+            <div id="ps3" style="height:3px;flex:1;border-radius:2px;background:var(--border-base);transition:background 200ms;"></div>
+            <div id="ps4" style="height:3px;flex:1;border-radius:2px;background:var(--border-base);transition:background 200ms;"></div>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label class="form-label">Confirm new password</label>
+          <input class="form-input" type="password" name="confirmPassword"
+            placeholder="Repeat new password" required maxlength="20" />
+        </div>
+
+        <button type="submit" class="btn btn--primary" style="height:40px;width:fit-content;">
+          Update password
+        </button>
+
+      </form>
+    </div>
+
+  <!-- ══════════════════ BILLING TAB ══════════════════ -->
+  <% } else if (tab === 'billing') { %>
+
+    <div style="max-width:560px;display:flex;flex-direction:column;gap:28px;">
+
+      <div>
+        <h2 style="font-size:var(--text-lg);letter-spacing:-0.02em;margin-bottom:4px;">Current plan</h2>
+
+        <!-- Plan card -->
+        <div style="
+          background:var(--bg-subtle);
+          border:1px solid <%= user.subscription_status === 'Pro' ? 'var(--accent-border)' : user.subscription_status === 'Lifetime' ? 'rgba(245,166,35,0.25)' : 'var(--border-faint)' %>;
+          border-radius:var(--r-lg);
+          padding:20px 24px;
+          display:flex;align-items:center;justify-content:space-between;gap:16px;
+          margin-top:16px;
+        ">
+          <div>
+            <p style="font-size:var(--text-xs);color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Active plan</p>
+            <p style="font-size:var(--text-xl);font-weight:500;letter-spacing:-0.02em;color:
+              <%= user.subscription_status === 'Pro' ? 'var(--accent)' :
+                  user.subscription_status === 'Lifetime' ? 'var(--gold)' :
+                  'var(--text-primary)' %>">
+              <%= user.subscription_status %>
+              <% if (user.subscription_status === 'Free') { %>&nbsp;<span style="font-size:var(--text-sm);color:var(--text-tertiary);font-weight:400;">— 3 projects</span><% } %>
+              <% if (user.subscription_status === 'Lifetime') { %>&nbsp;<span style="font-size:var(--text-sm);color:var(--text-tertiary);font-weight:400;">— forever</span><% } %>
+            </p>
+          </div>
+          <% if (user.subscription_status === 'Free') { %>
+            <a href="/#pricing" class="btn btn--accent">Upgrade</a>
+          <% } %>
+        </div>
+      </div>
+
+      <!-- Voucher section -->
+      <div>
+        <h3 style="font-size:var(--text-base);font-weight:500;letter-spacing:-0.01em;margin-bottom:4px;">Redeem voucher</h3>
+        <p style="font-size:var(--text-sm);color:var(--text-secondary);margin-bottom:16px;">
+          Have a promo code? Enter it below to unlock your plan.
+        </p>
+
+        <% if (user.voucherUsed) { %>
+          <div style="background:rgba(61,214,140,0.06);border:1px solid rgba(61,214,140,0.2);border-radius:var(--r-md);padding:12px 16px;font-size:var(--text-sm);color:var(--success);">
+            ✓ Voucher already redeemed: <code><%= user.voucherUsed %></code>
+          </div>
+        <% } else { %>
+          <form action="/profile/voucher" method="POST" style="display:flex;gap:8px;">
+            <input class="form-input" type="text" name="voucherCode"
+              placeholder="e.g. BLOXIG2026" maxlength="30"
+              style="text-transform:uppercase;letter-spacing:0.05em;flex:1;" />
+            <button type="submit" class="btn btn--ghost" style="white-space:nowrap;">
+              Redeem
+            </button>
+          </form>
+        <% } %>
+      </div>
+
+      <!-- Pricing reminder -->
+      <div style="border:1px solid var(--border-faint);border-radius:var(--r-lg);overflow:hidden;">
+        <div style="padding:16px 20px;border-bottom:1px solid var(--border-faint);background:var(--bg-elevated);">
+          <p style="font-size:var(--text-sm);font-weight:500;">Available plans</p>
+        </div>
+        <% [
+          { name:'Free',     price:'$0',  desc:'3 projects, basic export' },
+          { name:'Pro',      price:'$12/mo', desc:'Unlimited, marketplace, history' },
+          { name:'Pro Plus', price:'$49 once', desc:'Lifetime access, all features' }
+        ].forEach(function(p) { %>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border-faint);">
+            <div>
+              <p style="font-size:var(--text-sm);font-weight:500;"><%= p.name %></p>
+              <p style="font-size:var(--text-xs);color:var(--text-tertiary);"><%= p.desc %></p>
+            </div>
+            <p style="font-size:var(--text-sm);font-weight:500;color:var(--text-secondary);"><%= p.price %></p>
+          </div>
+        <% }) %>
+      </div>
+
+    </div>
+
+  <!-- ══════════════════ DEVELOPER TAB ══════════════════ -->
+  <% } else if (tab === 'developer') { %>
+
+    <div style="max-width:560px;display:flex;flex-direction:column;gap:32px;">
+
+      <div>
+        <h2 style="font-size:var(--text-lg);letter-spacing:-0.02em;margin-bottom:4px;">API Token</h2>
+        <p style="font-size:var(--text-sm);color:var(--text-secondary);margin-bottom:20px;">
+          Use this token in the Bloxig Figma plugin and Roblox Studio plugin to authenticate your requests.
+          Treat it like a password — never share it publicly.
+        </p>
+
+        <div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:var(--r-md);padding:16px;">
+          <p style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Your API Token</p>
+
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <code id="tokenDisplay" style="
+              font-size:11px;font-family:var(--font-mono);
+              color:var(--text-tertiary);
+              flex:1;word-break:break-all;
+              background:var(--bg-base);
+              border:1px solid var(--border-faint);
+              border-radius:var(--r-sm);
+              padding:10px 12px;
+              line-height:1.6;
+            ">
+              <% if (user.apiToken) { %>
+                ••••••••••••••••••••••••••••••••••••••
+              <% } else { %>
+                No token yet — generate one below
+              <% } %>
+            </code>
+
+            <% if (user.apiToken) { %>
+              <button onclick="revealToken('<%= user.apiToken %>')"
+                class="btn btn--ghost" style="height:34px;font-size:11px;flex-shrink:0;">
+                Reveal
+              </button>
+              <button onclick="copyToken('<%= user.apiToken %>')" id="copyBtn"
+                class="btn btn--ghost" style="height:34px;font-size:11px;flex-shrink:0;">
+                Copy
+              </button>
+            <% } %>
+          </div>
+        </div>
+
+        <form action="/profile/generate-token" method="POST" style="margin-top:12px;">
+          <button type="submit" class="btn btn--accent" style="height:38px;">
+            <%= user.apiToken ? '↻ Regenerate token' : '+ Generate API token' %>
+          </button>
+        </form>
+        <p style="font-size:var(--text-xs);color:var(--text-tertiary);margin-top:8px;">
+          Regenerating will invalidate your old token immediately.
+        </p>
+      </div>
+
+      <!-- Usage guide -->
+      <div>
+        <h3 style="font-size:var(--text-base);font-weight:500;letter-spacing:-0.01em;margin-bottom:16px;">How to use your token</h3>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+
+          <div style="background:var(--bg-subtle);border:1px solid var(--border-faint);border-radius:var(--r-md);padding:16px;">
+            <p style="font-size:var(--text-xs);color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">In Figma Plugin</p>
+            <p style="font-size:var(--text-sm);color:var(--text-secondary);">Open the Bloxig plugin in Figma → paste your token → click Export.</p>
+          </div>
+
+          <div style="background:var(--bg-subtle);border:1px solid var(--border-faint);border-radius:var(--r-md);padding:16px;">
+            <p style="font-size:var(--text-xs);color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">In Roblox Studio Plugin</p>
+            <p style="font-size:var(--text-sm);color:var(--text-secondary);">Open Bloxig in Studio → paste your token + Project ID → Preview → Confirm.</p>
+          </div>
+
+          <div style="background:var(--bg-subtle);border:1px solid var(--border-faint);border-radius:var(--r-md);padding:16px;">
+            <p style="font-size:var(--text-xs);color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Via cURL / API</p>
+            <code style="font-size:11px;font-family:var(--font-mono);color:var(--text-secondary);display:block;line-height:1.8;white-space:pre-wrap;">Authorization: Bearer YOUR_TOKEN_HERE</code>
+          </div>
+        </div>
+      </div>
+
+      <!-- Project IDs -->
+      <div>
+        <h3 style="font-size:var(--text-base);font-weight:500;letter-spacing:-0.01em;margin-bottom:8px;">Your Project IDs</h3>
+        <p style="font-size:var(--text-sm);color:var(--text-secondary);margin-bottom:12px;">Paste these into the Roblox Studio plugin to import specific projects.</p>
+        <a href="/dashboard" class="btn btn--ghost" style="height:36px;">View all projects →</a>
+      </div>
+
+    </div>
+
+  <% } %>
+
+</div>
+
+<script>
+// Password strength on security tab
+const newPwd = document.getElementById('newPwd');
+if (newPwd) {
+  const bars = ['ps1','ps2','ps3','ps4'].map(id => document.getElementById(id));
+  const colors = ['#e5484d','#f5a623','#4f7bf7','#3dd68c'];
+  newPwd.addEventListener('input', () => {
+    let score = 0;
+    const v = newPwd.value;
+    if (v.length >= 8)    score++;
+    if (/[A-Z]/.test(v))  score++;
+    if (/[a-z]/.test(v) && /\d/.test(v)) score++;
+    if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(v)) score++;
+    bars.forEach((b, i) => {
+      if (b) b.style.background = i < score ? colors[score-1] : 'var(--border-base)';
+    });
+  });
+}
+
+function revealToken(token) {
+  const el = document.getElementById('tokenDisplay');
+  if (el) el.textContent = token;
+}
+
+function copyToken(token) {
+  navigator.clipboard.writeText(token).then(() => {
+    const btn = document.getElementById('copyBtn');
+    if (btn) {
+      btn.textContent = 'Copied!';
+      btn.style.color = 'var(--success)';
+      setTimeout(() => {
+        btn.textContent = 'Copy';
+        btn.style.color = '';
+      }, 2000);
+    }
+  });
+}
+</script>
+
+<%- include('../layout/footer') %>

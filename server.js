@@ -1,7 +1,5 @@
 // ============================================================
 // server.js — Bloxig Express Entry Point
-// Senior Architect Note: Keep this file thin. Logic lives in
-// routes/ and controllers/. This file only wires things up.
 // ============================================================
 
 require('dotenv').config();
@@ -9,26 +7,30 @@ const express    = require('express');
 const session    = require('express-session');
 const MongoStore = require('connect-mongo');
 const passport   = require('passport');
+const flash      = require('connect-flash');
+const helmet     = require('helmet');
 const path       = require('path');
-const helmet     = require('helmet'); // 1. Imported helmet properly here
 
 const connectDB  = require('./config/db');
 require('./config/passport')(passport);
 
-// ── Routes ──────────────────────────────────────────────────
+// ── Routes ────────────────────────────────────────────────────
 const authRoutes        = require('./routes/auth');
 const dashboardRoutes   = require('./routes/dashboard');
 const marketplaceRoutes = require('./routes/marketplace');
 const apiRoutes         = require('./routes/api');
 const webhookRoutes     = require('./routes/webhooks');
+const profileRoutes     = require('./routes/profile');
 
-const app = express(); // 2. The 'app' variable is created HERE!
+const app = express();
 
-// ── Security Headers ──────────────────────────────────────────
-app.use(helmet()); // 3. Safe to use helmet now that 'app' exists!
-
-// ── Connect Database ─────────────────────────────────────────
+// ── Connect Database ──────────────────────────────────────────
 connectDB();
+
+// ── Security headers ──────────────────────────────────────────
+app.use(helmet({
+  contentSecurityPolicy: false // disabled to allow Google Fonts + inline scripts
+}));
 
 // ── View Engine ───────────────────────────────────────────────
 app.set('view engine', 'ejs');
@@ -38,36 +40,46 @@ app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Body Parsers ──────────────────────────────────────────────
-// NOTE: Stripe webhooks need raw body — mount BEFORE express.json()
+// Stripe/Lemon webhooks need raw body — mount BEFORE json parser
 app.use('/api/webhooks', express.raw({ type: 'application/json' }));
-app.use(express.json({ limit: '10mb' })); // Added a safety payload limit
+app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 // ── Session ───────────────────────────────────────────────────
 app.use(session({
-  secret: process.env.SESSION_SECRET,
-  resave: false,
+  secret:            process.env.SESSION_SECRET || 'fallback_secret_change_this',
+  resave:            false,
   saveUninitialized: false,
   store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI }),
-  cookie: { maxAge: 1000 * 60 * 60 * 24 * 7 } // 7 days
+  cookie: {
+    maxAge:   1000 * 60 * 60 * 24 * 7, // 7 days
+    httpOnly: true,
+    secure:   process.env.NODE_ENV === 'production'
+  }
 }));
 
 // ── Passport ──────────────────────────────────────────────────
 app.use(passport.initialize());
 app.use(passport.session());
 
+// ── Flash messages ────────────────────────────────────────────
+app.use(flash());
+
 // ── Global Template Variables ─────────────────────────────────
-// Makes `user` available in every EJS template automatically
+// Makes user, error, success available in every EJS template
 app.use((req, res, next) => {
-  res.locals.user = req.user || null;
+  res.locals.user    = req.user || null;
+  res.locals.error   = req.flash('error')[0]   || null;
+  res.locals.success = req.flash('success')[0] || null;
   next();
 });
 
 // ── Mount Routes ──────────────────────────────────────────────
-app.use('/auth',        authRoutes);
-app.use('/dashboard',   dashboardRoutes);
-app.use('/marketplace', marketplaceRoutes);
-app.use('/api',         apiRoutes);
+app.use('/auth',         authRoutes);
+app.use('/dashboard',    dashboardRoutes);
+app.use('/marketplace',  marketplaceRoutes);
+app.use('/profile',      profileRoutes);
+app.use('/api',          apiRoutes);
 app.use('/api/webhooks', webhookRoutes);
 
 // ── Landing Page ──────────────────────────────────────────────
@@ -80,9 +92,8 @@ app.get('/docs', (req, res) => {
   res.render('pages/docs', { title: 'Docs' });
 });
 
-// ── Checkout redirects (Lemon Squeezy — Week 4) ───────────────
+// ── Checkout (Lemon Squeezy — Week 4) ────────────────────────
 app.get('/checkout/pro', (req, res) => {
-  // Replace with real Lemon Squeezy checkout URL
   res.redirect('https://bloxig.lemonsqueezy.com/checkout/pro');
 });
 app.get('/checkout/lifetime', (req, res) => {
@@ -92,6 +103,12 @@ app.get('/checkout/lifetime', (req, res) => {
 // ── 404 Handler ───────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).render('pages/404', { title: '404 — Not Found' });
+});
+
+// ── Error Handler ─────────────────────────────────────────────
+app.use((err, req, res, next) => {
+  console.error('[Server Error]', err.stack);
+  res.status(500).render('pages/404', { title: 'Something went wrong' });
 });
 
 // ── Start Server ──────────────────────────────────────────────

@@ -1,7 +1,7 @@
 {
-  "name": "figblox",
-  "version": "0.1.0",
-  "description": "Bridge between Figma and Roblox Studio",
+  "name": "bloxig",
+  "version": "0.2.0",
+  "description": "Figma to Roblox Studio bridge — SaaS platform",
   "main": "server.js",
   "scripts": {
     "dev": "nodemon server.js",
@@ -9,12 +9,13 @@
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
+    "connect-flash": "^0.1.1",
     "connect-mongo": "^5.0.0",
     "dotenv": "^16.0.3",
     "ejs": "^3.1.9",
     "express": "^4.18.2",
     "express-session": "^1.17.3",
-    "helmet": "^8.1.0",
+    "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.0",
     "mongoose": "^7.3.1",
     "passport": "^0.6.0",
@@ -25,6 +26,6 @@
     "nodemon": "^3.0.1"
   },
   "engines": {
-    "node": ">=18.x"
+    "node": "18.x"
   }
 }

@@ -1,0 +1,58 @@
+<%- include('../layout/header') %>
+
+<section style="min-height:calc(100vh - 56px);display:flex;align-items:center;justify-content:center;padding:48px 20px;">
+  <div style="width:100%;max-width:380px;">
+
+    <div style="margin-bottom:32px;">
+      <h1 style="font-size:var(--text-2xl);letter-spacing:-0.03em;margin-bottom:6px;">Welcome back</h1>
+      <p style="font-size:var(--text-sm);color:var(--text-secondary);">Sign in to your Bloxig account.</p>
+    </div>
+
+    <form action="/auth/login" method="POST" style="display:flex;flex-direction:column;gap:16px;">
+
+      <div class="form-field">
+        <label class="form-label" for="email">Email</label>
+        <input class="form-input" type="email" id="email" name="email"
+          placeholder="you@example.com" required autocomplete="email" />
+      </div>
+
+      <div class="form-field">
+        <label class="form-label" for="password">Password</label>
+        <div style="position:relative;">
+          <input class="form-input" type="password" id="password" name="password"
+            placeholder="••••••••" required autocomplete="current-password"
+            style="padding-right:44px;" />
+          <button type="button" id="togglePass"
+            style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:14px;padding:4px;">
+            👁
+          </button>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn--primary btn--full" style="height:42px;margin-top:4px;">
+        Sign in
+      </button>
+
+    </form>
+
+    <p style="margin-top:24px;font-size:var(--text-sm);color:var(--text-tertiary);text-align:center;">
+      Don't have an account?
+      <a href="/auth/signup" style="color:var(--text-secondary);text-decoration:underline;text-underline-offset:3px;">Create one free</a>
+    </p>
+
+  </div>
+</section>
+
+<script>
+const toggleBtn = document.getElementById('togglePass');
+const passInput = document.getElementById('password');
+if (toggleBtn && passInput) {
+  toggleBtn.addEventListener('click', () => {
+    const isPass = passInput.type === 'password';
+    passInput.type = isPass ? 'text' : 'password';
+    toggleBtn.textContent = isPass ? '🙈' : '👁';
+  });
+}
+</script>
+
+<%- include('../layout/footer') %>

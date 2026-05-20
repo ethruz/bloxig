@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'self';
+           script-src 'unsafe-inline';
+           style-src 'unsafe-inline' https://fonts.googleapis.com;
+           font-src https://fonts.gstatic.com;
+           connect-src https://bloxig.onrender.com https://fonts.googleapis.com https://fonts.gstatic.com;
+           img-src 'self' data: https:;">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg:        #0d0d0d;
+  --surface:   #161616;
+  --surface2:  #1c1c1c;
+  --border:    rgba(255,255,255,0.08);
+  --border2:   rgba(255,255,255,0.12);
+  --text:      #efefef;
+  --muted:     #888888;
+  --dim:       #444444;
+  --accent:    #4f7bf7;
+  --accent-h:  #6690f9;
+  --success:   #3dd68c;
+  --danger:    #e5484d;
+  --warning:   #f5a623;
+  --gold:      #f5a623;
+  --r:         7px;
+  --r-sm:      5px;
+  --r-full:    9999px;
+  --dur:       150ms;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  overflow-x: hidden;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(13,13,13,0.9);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.logo-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.logo-mark svg { width: 12px; height: 12px; fill: white; }
+
+.plan-badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--border2);
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.plan-badge.pro      { border-color: rgba(79,123,247,0.35); color: var(--accent); }
+.plan-badge.lifetime { border-color: rgba(245,166,35,0.35); color: var(--gold); }
+
+.user-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(79,123,247,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid rgba(79,123,247,0.25);
+}
+
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.user-info { flex: 1; min-width: 0; }
+.user-name  { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-sub   { font-size: 10px; color: var(--muted); margin-top: 1px; }
+
+.content {
+  flex: 1;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.selection-card {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  background: var(--surface);
+  transition: border-color var(--dur);
+}
+
+.selection-card.ready   { border-color: rgba(79,123,247,0.3); }
+.selection-card.invalid { border-color: rgba(245,166,35,0.3); }
+
+.selection-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 5px;
+}
+
+.selection-name  { font-size: 13px; font-weight: 500; color: var(--text); }
+.selection-empty { font-size: 12px; color: var(--dim); font-style: italic; }
+.selection-hint  {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.selection-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dim);
+  flex-shrink: 0;
+}
+.selection-dot.ready   { background: var(--accent); }
+.selection-dot.invalid { background: var(--warning); }
+
+.field { display: flex; flex-direction: column; gap: 5px; }
+
+.field-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.field-row { display: flex; gap: 6px; align-items: center; }
+
+input[type="text"],
+input[type="password"] {
+  flex: 1;
+  height: 34px;
+  padding: 0 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  transition: border-color var(--dur), box-shadow var(--dur);
+  min-width: 0;
+}
+
+input::placeholder { color: var(--dim); }
+
+input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79,123,247,0.12);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  font-family: 'Geist', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--dur);
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--text);
+  color: #0d0d0d;
+  border-color: var(--text);
+}
+.btn-primary:hover:not(:disabled) { background: #d0d0d0; }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--border);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border2);
+}
+
+.btn-accent {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.btn-accent:hover:not(:disabled) { background: var(--accent-h); }
+
+.btn-gold {
+  background: var(--gold);
+  color: #1a1200;
+  border-color: var(--gold);
+}
+.btn-gold:hover:not(:disabled) { background: #f7b93e; }
+
+.btn-full { width: 100%; }
+
+.btn-icon {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.export-btn {
+  height: 38px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--r);
+  letter-spacing: -0.01em;
+}
+
+.spinner {
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid rgba(255,255,255,0.2);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: none;
+  flex-shrink: 0;
+}
+.spinner.show { display: block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.status {
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  line-height: 1.5;
+  border: 1px solid transparent;
+  display: none;
+}
+.status.show    { display: block; }
+.status.info    { background: rgba(79,123,247,0.08);  border-color: rgba(79,123,247,0.2);  color: #7aa2f7; }
+.status.success { background: rgba(61,214,140,0.08);  border-color: rgba(61,214,140,0.2);  color: var(--success); }
+.status.error   { background: rgba(229,72,77,0.08);   border-color: rgba(229,72,77,0.2);   color: var(--danger); }
+.status.warning { background: rgba(245,166,35,0.08);  border-color: rgba(245,166,35,0.2);  color: var(--warning); }
+
+.divider { height: 1px; background: var(--border); border: none; margin: 4px 0; }
+
+.upgrade-banner {
+  border: 1px solid rgba(245,166,35,0.2);
+  border-radius: var(--r);
+  padding: 14px;
+  background: rgba(245,166,35,0.04);
+}
+
+.upgrade-title { font-size: 12px; font-weight: 600; color: var(--gold); margin-bottom: 4px; }
+.upgrade-body  { font-size: 11px; color: var(--muted); margin-bottom: 12px; line-height: 1.6; }
+
+.upgrade-btns { display: flex; gap: 8px; }
+.upgrade-btns .btn { flex: 1; height: 32px; font-size: 11px; }
+
+.success-panel {
+  background: rgba(61,214,140,0.06);
+  border: 1px solid rgba(61,214,140,0.2);
+  border-radius: var(--r);
+  padding: 14px;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+}
+.success-panel.show { display: flex; }
+.success-title { font-size: 12px; font-weight: 600; color: var(--success); }
+.success-id    {
+  font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 6px 10px;
+  word-break: break-all;
+}
+
+.footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--bg);
+}
+
+.footer-link {
+  font-size: 11px;
+  color: var(--muted);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color var(--dur);
+  background: none;
+  border: none;
+  font-family: inherit;
+  padding: 0;
+}
+.footer-link:hover { color: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">
+    <div class="logo-mark">
+      <svg viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="4" height="4" rx="1"/>
+        <rect x="7" y="1" width="4" height="4" rx="1"/>
+        <rect x="1" y="7" width="4" height="4" rx="1"/>
+        <rect x="7" y="7" width="4" height="4" rx="1" opacity="0.5"/>
+      </svg>
+    </div>
+    Bloxig
+  </div>
+  <span class="plan-badge" id="planBadge">Free</span>
+</div>
+
+<div class="user-row" id="userRow" style="display:none;">
+  <div class="avatar" id="userAvatar">?</div>
+  <div class="user-info">
+    <div class="user-name" id="userName">Loading...</div>
+    <div class="user-sub"  id="userSub">Figma user</div>
+  </div>
+</div>
+
+<div class="content">
+
+  <div class="selection-card" id="selectionCard">
+    <div class="selection-label">Selected frame</div>
+    <div id="selectionDisplay" class="selection-empty">No frame selected</div>
+    <div class="selection-hint">
+      <span class="selection-dot" id="selectionDot"></span>
+      <span id="selectionHint">Click a Frame in Figma to select it</span>
+    </div>
+  </div>
+
+  <div class="field">
+    <label class="field-label">Bloxig API Token</label>
+    <div class="field-row">
+      <input
+        type="password"
+        id="tokenInput"
+        placeholder="Paste from bloxig.onrender.com/profile/developer"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button class="btn btn-ghost btn-icon" id="toggleVis" title="Show / hide token">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M1 7s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" stroke="currentColor" stroke-width="1.2"/>
+          <circle cx="7" cy="7" r="1.5" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+      </button>
+    </div>
+    <div style="font-size:10px;color:var(--dim);margin-top:3px;">
+      Get your token from
+      <button class="footer-link" onclick="openDashboard()" style="font-size:10px;text-decoration:underline;">bloxig.onrender.com → Profile → Developer</button>
+    </div>
+  </div>
+
+  <div class="status" id="statusMsg"></div>
+
+  <button class="btn btn-primary btn-full export-btn" id="exportBtn" disabled>
+    <div class="spinner" id="spinner"></div>
+    <span id="exportLabel">Export to Roblox</span>
+  </button>
+
+  <div class="success-panel" id="successPanel">
+    <div class="success-title">✓ Export successful!</div>
+    <div style="font-size:11px;color:var(--muted);">Project ID — paste into Roblox Studio plugin:</div>
+    <div class="success-id" id="successId"></div>
+    <div style="display:flex;gap:6px;">
+      <button class="btn btn-ghost btn-full" id="copyIdBtn" style="height:28px;font-size:11px;" onclick="copyProjectId()">
+        Copy Project ID
+      </button>
+      <button class="btn btn-ghost" style="height:28px;font-size:11px;flex-shrink:0;" onclick="openDashboard()">
+        Dashboard ↗
+      </button>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <div class="upgrade-banner" id="upgradeBanner">
+    <div class="upgrade-title">⚡ Unlock Pro — more projects, faster sync</div>
+    <div class="upgrade-body">
+      Free accounts are limited to 3 projects. Upgrade for unlimited exports,
+      Smart Merge history, and priority sync.
+    </div>
+    <div class="upgrade-btns">
+      <button class="btn btn-accent" id="upgradeProBtn">Pro — $12/mo</button>
+      <button class="btn btn-gold"   id="upgradeLifetimeBtn">Lifetime — $49</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  <button class="footer-link" onclick="openDashboard()">Dashboard ↗</button>
+  <button class="footer-link" onclick="openDocs()">Docs ↗</button>
+  <button class="btn btn-ghost" id="closeBtn" style="height:26px;font-size:11px;padding:0 10px;">Close</button>
+</div>
+
+<script>
+// ================================================================
+// Bloxig Plugin UI — v1.2 (Fixed)
+// ================================================================
+
+var SERVER = 'https://bloxig.onrender.com';
+
+var state = {
+  hasSelection: false,
+  userId: null,
+  userName: null,
+  fileKey: null,
+  plan: 'Free',
+  lastProjectId: null
+};
+
+// Send message to code.js
+function sendToPlugin(msg) {
+  parent.postMessage({ pluginMessage: msg }, '*');
+}
+
+// Receive messages from code.js
+// FIXED: reads msg.payload correctly for INIT and SELECTION_CHANGED
+window.onmessage = function(event) {
+  var msg = event.data && event.data.pluginMessage;
+  if (!msg || typeof msg.type !== 'string') return;
+
+  switch (msg.type) {
+
+    case 'INIT': {
+      // payload is nested under msg.payload
+      var p = msg.payload;
+      if (!p) break;
+
+      state.hasSelection = !!p.hasSelection;
+      state.userId       = p.userId;
+      state.userName     = p.userName;
+      state.fileKey      = p.fileKey;
+
+      var userRow = document.getElementById('userRow');
+      if (userRow) userRow.style.display = 'flex';
+
+      var nameEl = document.getElementById('userName');
+      if (nameEl) nameEl.textContent = p.userName || 'Figma User';
+
+      var subEl = document.getElementById('userSub');
+      if (subEl) subEl.textContent = 'File: ' + (p.fileKey || 'local');
+
+      var avatarEl = document.getElementById('userAvatar');
+      if (avatarEl) {
+        if (p.userPhotoUrl) {
+          avatarEl.innerHTML = '<img src="' + p.userPhotoUrl + '" alt="avatar" />';
+        } else {
+          avatarEl.textContent = (p.userName || 'U')[0].toUpperCase();
+        }
+      }
+
+      updateSelectionUI(p);
+      updateExportButton();
+      break;
+    }
+
+    case 'SELECTION_CHANGED': {
+      // payload is nested under msg.payload
+      var p = msg.payload;
+      if (!p) break;
+      state.hasSelection = !!p.hasSelection;
+      updateSelectionUI(p);
+      updateExportButton();
+      break;
+    }
+
+    case 'PROGRESS':
+      showStatus(msg.message || 'Working...', 'info');
+      setLoading(true);
+      break;
+
+    case 'SUCCESS': {
+      setLoading(false);
+      clearStatus();
+      state.lastProjectId = msg.projectId || null;
+      var panel = document.getElementById('successPanel');
+      var idEl  = document.getElementById('successId');
+      if (panel) panel.classList.add('show');
+      if (idEl && msg.projectId) idEl.textContent = msg.projectId;
+      break;
+    }
+
+    case 'ERROR':
+      showStatus('✗ ' + (msg.message || 'Unknown error'), 'error');
+      setLoading(false);
+      break;
+
+    case 'WARNING':
+      showStatus('⚠ ' + msg.message, 'warning');
+      setLoading(false);
+      break;
+  }
+};
+
+// Ping on load — forces selection sync if frame already selected when plugin opens
+setTimeout(function() {
+  sendToPlugin({ type: 'PING' });
+}, 150);
+
+// UI helpers
+function updateSelectionUI(p) {
+  var card    = document.getElementById('selectionCard');
+  var display = document.getElementById('selectionDisplay');
+  var hint    = document.getElementById('selectionHint');
+  var dot     = document.getElementById('selectionDot');
+  if (!card || !display || !hint || !dot) return;
+
+  if (!p.hasSelection) {
+    if (p.notExportable && p.selectionType) {
+      card.className = 'selection-card invalid';
+      display.className = 'selection-name';
+      display.textContent = p.selectionName || p.selectionType;
+      display.style.color = 'var(--warning)';
+      hint.textContent = p.selectionType + ' cannot be exported — select a Frame';
+      dot.className = 'selection-dot invalid';
+    } else {
+      card.className = 'selection-card';
+      display.className = 'selection-empty';
+      display.textContent = 'No frame selected';
+      display.style.color = '';
+      hint.textContent = 'Click a Frame in Figma to select it';
+      dot.className = 'selection-dot';
+    }
+  } else if (p.selectionCount > 1) {
+    card.className = 'selection-card invalid';
+    display.className = 'selection-name';
+    display.textContent = p.selectionCount + ' items selected';
+    display.style.color = 'var(--warning)';
+    hint.textContent = 'Select only one frame at a time';
+    dot.className = 'selection-dot invalid';
+  } else {
+    card.className = 'selection-card ready';
+    display.className = 'selection-name';
+    display.textContent = p.selectionName || 'Frame selected';
+    display.style.color = '';
+    hint.textContent = 'Ready to export';
+    dot.className = 'selection-dot ready';
+  }
+}
+
+function updateExportButton() {
+  var tokenInput = document.getElementById('tokenInput');
+  var token = tokenInput ? tokenInput.value : '';
+  var btn   = document.getElementById('exportBtn');
+  if (!btn) return;
+  btn.disabled = !(state.hasSelection && token.trim().length > 10);
+}
+
+function showStatus(msg, type) {
+  var el = document.getElementById('statusMsg');
+  if (!el) return;
+  el.textContent = msg;
+  el.className   = 'status show ' + (type || 'info');
+}
+
+function clearStatus() {
+  var el = document.getElementById('statusMsg');
+  if (el) { el.className = 'status'; el.textContent = ''; }
+}
+
+function setLoading(loading) {
+  var spinner = document.getElementById('spinner');
+  var label   = document.getElementById('exportLabel');
+  var btn     = document.getElementById('exportBtn');
+  if (spinner) spinner.className = loading ? 'spinner show' : 'spinner';
+  if (label)   label.textContent = loading ? 'Exporting...' : 'Export to Roblox';
+  if (btn)     btn.disabled      = loading;
+}
+
+// Token visibility toggle
+var toggleVis  = document.getElementById('toggleVis');
+var tokenInput = document.getElementById('tokenInput');
+if (toggleVis && tokenInput) {
+  toggleVis.addEventListener('click', function() {
+    tokenInput.type = tokenInput.type === 'password' ? 'text' : 'password';
+  });
+}
+
+if (tokenInput) {
+  tokenInput.addEventListener('input', updateExportButton);
+}
+
+// Export button
+var exportBtn = document.getElementById('exportBtn');
+if (exportBtn) {
+  exportBtn.addEventListener('click', function() {
+    var token = tokenInput ? tokenInput.value.trim() : '';
+
+    if (!token) {
+      showStatus('Please paste your API token first.', 'error');
+      return;
+    }
+    if (token.split('.').length !== 3) {
+      showStatus('Token looks invalid. Copy it from Profile → Developer on bloxig.onrender.com', 'error');
+      return;
+    }
+
+    var panel = document.getElementById('successPanel');
+    if (panel) panel.classList.remove('show');
+
+    clearStatus();
+    sendToPlugin({ type: 'EXPORT_FRAME', token: token });
+  });
+}
+
+// Copy project ID
+function copyProjectId() {
+  if (!state.lastProjectId) return;
+  var btn = document.getElementById('copyIdBtn');
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(state.lastProjectId).then(function() {
+      if (btn) {
+        btn.textContent = '✓ Copied!';
+        btn.style.color = 'var(--success)';
+        setTimeout(function() {
+          btn.textContent = 'Copy Project ID';
+          btn.style.color = '';
+        }, 2000);
+      }
+    }).catch(function() { fallbackCopy(); });
+  } else {
+    fallbackCopy();
+  }
+
+  function fallbackCopy() {
+    var el = document.createElement('textarea');
+    el.value = state.lastProjectId;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+    if (btn) {
+      btn.textContent = '✓ Copied!';
+      btn.style.color = 'var(--success)';
+      setTimeout(function() {
+        btn.textContent = 'Copy Project ID';
+        btn.style.color = '';
+      }, 2000);
+    }
+  }
+}
+
+// Upgrade buttons
+var upgradeProBtn = document.getElementById('upgradeProBtn');
+if (upgradeProBtn) {
+  upgradeProBtn.addEventListener('click', function() {
+    var uid = state.userId ? '?ref=' + encodeURIComponent(state.userId) : '';
+    window.open(SERVER + '/checkout/pro' + uid, '_blank');
+  });
+}
+
+var upgradeLifetimeBtn = document.getElementById('upgradeLifetimeBtn');
+if (upgradeLifetimeBtn) {
+  upgradeLifetimeBtn.addEventListener('click', function() {
+    var uid = state.userId ? '?ref=' + encodeURIComponent(state.userId) : '';
+    window.open(SERVER + '/checkout/lifetime' + uid, '_blank');
+  });
+}
+
+// Close button
+var closeBtn = document.getElementById('closeBtn');
+if (closeBtn) {
+  closeBtn.addEventListener('click', function() {
+    sendToPlugin({ type: 'CANCEL' });
+  });
+}
+
+function openDashboard() { window.open(SERVER + '/dashboard', '_blank'); }
+function openDocs()      { window.open(SERVER + '/docs', '_blank'); }
+</script>
+</body>
+</html>

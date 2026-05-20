@@ -1,0 +1,163 @@
+<%- include('../layout/header') %>
+
+<div style="max-width:720px;margin:0 auto;padding:48px 28px 96px;">
+
+  <!-- Header -->
+  <div style="margin-bottom:48px;">
+    <span class="eyebrow">Documentation</span>
+    <h1 style="font-size:clamp(28px,5vw,44px);letter-spacing:-0.03em;line-height:1.1;margin-bottom:16px;">
+      How to use Bloxig
+    </h1>
+    <p style="font-size:var(--text-base);color:var(--text-secondary);line-height:1.7;">
+      Bloxig connects Figma and Roblox Studio through a three-step pipeline. This page explains every step.
+    </p>
+  </div>
+
+  <hr class="divider" style="margin-bottom:48px;" />
+
+  <!-- Step 1 -->
+  <div style="margin-bottom:48px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+      <span style="font-size:var(--text-xs);font-family:var(--font-mono);color:var(--text-tertiary);background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:var(--r-sm);padding:3px 8px;">01</span>
+      <h2 style="font-size:var(--text-xl);letter-spacing:-0.02em;">Get your API token</h2>
+    </div>
+    <p style="color:var(--text-secondary);line-height:1.8;margin-bottom:16px;">
+      After signing up, go to your <a href="/dashboard" style="color:var(--accent);text-decoration:underline;text-underline-offset:3px;">Dashboard</a> and click <strong style="color:var(--text-primary);">Reveal</strong> next to your API token. This token authenticates both plugins.
+    </p>
+    <div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:var(--r-md);padding:16px;font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-tertiary);">
+      <div style="color:var(--text-disabled);margin-bottom:8px;">Or via terminal:</div>
+      <div>curl -X POST http://localhost:3000<span style="color:var(--accent);">/api/token</span> \</div>
+      <div style="padding-left:16px;">-H <span style="color:#7aa2f7;">"Content-Type: application/json"</span> \</div>
+      <div style="padding-left:16px;">-d <span style="color:#7aa2f7;">'{"email":"you@example.com","password":"yourpassword"}'</span></div>
+    </div>
+  </div>
+
+  <!-- Step 2 -->
+  <div style="margin-bottom:48px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+      <span style="font-size:var(--text-xs);font-family:var(--font-mono);color:var(--text-tertiary);background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:var(--r-sm);padding:3px 8px;">02</span>
+      <h2 style="font-size:var(--text-xl);letter-spacing:-0.02em;">Export from Figma</h2>
+    </div>
+    <p style="color:var(--text-secondary);line-height:1.8;margin-bottom:16px;">
+      Open the Bloxig plugin inside Figma. Select any Frame or Component in your design, paste your API token, and click <strong style="color:var(--text-primary);">Export to Roblox</strong>.
+    </p>
+    <div style="background:var(--bg-subtle);border:1px solid var(--border-faint);border-radius:var(--r-md);padding:20px;display:flex;flex-direction:column;gap:10px;">
+      <% [
+        'Select a Frame or Component in Figma',
+        'Open Plugins → Bloxig',
+        'Paste your API token',
+        'Click "Export to Roblox"',
+        'Copy the Project ID shown in your dashboard'
+      ].forEach(function(step, i) { %>
+        <div style="display:flex;align-items:flex-start;gap:12px;font-size:var(--text-sm);color:var(--text-secondary);">
+          <span style="font-size:10px;font-family:var(--font-mono);color:var(--text-tertiary);background:var(--bg-elevated);border:1px solid var(--border-faint);border-radius:3px;padding:2px 6px;flex-shrink:0;margin-top:1px;"><%= i+1 %></span>
+          <%= step %>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+
+  <!-- Step 3 -->
+  <div style="margin-bottom:48px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+      <span style="font-size:var(--text-xs);font-family:var(--font-mono);color:var(--text-tertiary);background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:var(--r-sm);padding:3px 8px;">03</span>
+      <h2 style="font-size:var(--text-xl);letter-spacing:-0.02em;">Import in Roblox Studio</h2>
+    </div>
+    <p style="color:var(--text-secondary);line-height:1.8;margin-bottom:16px;">
+      In Roblox Studio, open the Bloxig plugin from the toolbar. Paste your API token and Project ID, click <strong style="color:var(--text-primary);">Preview Import</strong> to see what will change, then <strong style="color:var(--text-primary);">Confirm</strong> to build the UI.
+    </p>
+    <div style="background:var(--bg-subtle);border:1px solid var(--border-faint);border-radius:var(--r-md);padding:20px;">
+      <p style="font-size:var(--text-xs);color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">Import Preview</p>
+      <div style="display:flex;flex-direction:column;gap:6px;font-family:var(--font-mono);font-size:var(--text-xs);">
+        <div><span style="color:var(--success);">[+]</span> <span style="color:var(--text-secondary);">New elements that will be created</span></div>
+        <div><span style="color:var(--accent);">[~]</span> <span style="color:var(--text-secondary);">Existing elements that will be updated</span></div>
+        <div><span style="color:var(--text-tertiary);">[=]</span> <span style="color:var(--text-secondary);">Elements already in sync — no changes</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Smart Merge -->
+  <div style="margin-bottom:48px;">
+    <h2 style="font-size:var(--text-xl);letter-spacing:-0.02em;margin-bottom:16px;">Smart Merge — your scripts are safe</h2>
+    <p style="color:var(--text-secondary);line-height:1.8;margin-bottom:16px;">
+      Every element Bloxig creates gets a hidden <code>Figblox_ID</code> attribute. When you re-import after a design change, Bloxig diffs by ID and only updates visual properties — never your <code>LocalScript</code> or <code>ModuleScript</code> children.
+    </p>
+    <div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:var(--r-md);padding:20px;font-family:var(--font-mono);font-size:var(--text-xs);line-height:2;color:var(--text-tertiary);">
+      <div><span style="color:#7aa2f7;">if</span> existing_element <span style="color:#7aa2f7;">then</span></div>
+      <div style="padding-left:20px;color:var(--text-secondary);">update(Size, Position, Color)  <span style="color:var(--text-tertiary);">-- visual only</span></div>
+      <div style="padding-left:20px;color:var(--success);">-- LocalScript preserved ✓</div>
+      <div><span style="color:#7aa2f7;">else</span></div>
+      <div style="padding-left:20px;color:var(--text-secondary);">create_new_element()</div>
+      <div><span style="color:#7aa2f7;">end</span></div>
+    </div>
+  </div>
+
+  <!-- Supported objects -->
+  <div style="margin-bottom:48px;">
+    <h2 style="font-size:var(--text-xl);letter-spacing:-0.02em;margin-bottom:16px;">Supported Roblox GUI objects</h2>
+    <p style="color:var(--text-secondary);line-height:1.8;margin-bottom:20px;">
+      Bloxig supports all 22 core Roblox GUI objects — the most complete coverage of any Figma-to-Roblox tool.
+    </p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;">
+      <% [
+        'Frame','TextLabel','ImageLabel','TextButton',
+        'ImageButton','TextBox','ScrollingFrame','CanvasGroup',
+        'ViewportFrame','UIGradient','UICorner','UIStroke',
+        'UIListLayout','UIGridLayout','UIPageLayout','UITableLayout',
+        'UIPadding','UIAspectRatioConstraint','UIFlexItem',
+        'UIScale','UISizeConstraint','UIFlexItem'
+      ].filter((v,i,a)=>a.indexOf(v)===i).forEach(function(obj) { %>
+        <div style="
+          background:var(--bg-subtle);
+          border:1px solid var(--border-faint);
+          border-radius:var(--r-sm);
+          padding:8px 12px;
+          font-size:var(--text-xs);
+          font-family:var(--font-mono);
+          color:var(--text-secondary);
+          display:flex;align-items:center;gap:6px;
+        ">
+          <span style="color:var(--success);font-size:8px;">●</span>
+          <%= obj %>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+
+  <!-- FAQ -->
+  <div>
+    <h2 style="font-size:var(--text-xl);letter-spacing:-0.02em;margin-bottom:24px;">FAQ</h2>
+    <div style="display:flex;flex-direction:column;gap:0;">
+      <% [
+        {
+          q: 'Does re-importing delete my scripts?',
+          a: 'No. Smart Merge only updates visual properties. Your LocalScripts and ModuleScripts are never touched.'
+        },
+        {
+          q: 'Why does the UI look slightly different from Figma?',
+          a: 'Roblox has a different font system and rendering engine. Some fonts are approximated. Images require uploading to Roblox first.'
+        },
+        {
+          q: 'Does it work on mobile screen sizes?',
+          a: 'Yes. All dimensions are converted to UDim2 Scale relative to the parent frame, so the UI adapts to different screen sizes automatically.'
+        },
+        {
+          q: 'What is the Free tier limit?',
+          a: '3 active projects. Upgrade to Pro for unlimited projects and marketplace access.'
+        }
+      ].forEach(function(item, i) { %>
+        <div style="
+          border-top:1px solid var(--border-faint);
+          padding:20px 0;
+          <%= i === 3 ? 'border-bottom:1px solid var(--border-faint);' : '' %>
+        ">
+          <h3 style="font-size:var(--text-base);font-weight:500;letter-spacing:-0.01em;margin-bottom:8px;"><%= item.q %></h3>
+          <p style="font-size:var(--text-sm);color:var(--text-secondary);line-height:1.7;"><%= item.a %></p>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+
+</div>
+
+<%- include('../layout/footer') %>

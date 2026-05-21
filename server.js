@@ -1,3 +1,4 @@
+//cat > /mnt/user-data/outputs/figblox/server.js << 'SERVEREOF'
 // ============================================================
 // server.js — Bloxig Express Entry Point
 // ============================================================
@@ -24,12 +25,16 @@ const profileRoutes     = require('./routes/profile');
 
 const app = express();
 
+// ── Trust Render proxy (MUST be before session) ───────────────
+// Required for secure cookies to work on Render + Firefox
+app.set('trust proxy', 1);
+
 // ── Connect Database ──────────────────────────────────────────
 connectDB();
 
 // ── Security headers ──────────────────────────────────────────
 app.use(helmet({
-  contentSecurityPolicy: false // disabled to allow Google Fonts + inline scripts
+  contentSecurityPolicy: false
 }));
 
 // ── View Engine ───────────────────────────────────────────────
@@ -40,12 +45,13 @@ app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Body Parsers ──────────────────────────────────────────────
-// Stripe/Lemon webhooks need raw body — mount BEFORE json parser
 app.use('/api/webhooks', express.raw({ type: 'application/json' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 // ── Session ───────────────────────────────────────────────────
+const isProduction = process.env.NODE_ENV === 'production';
+
 app.use(session({
   secret:            process.env.SESSION_SECRET || 'fallback_secret_change_this',
   resave:            false,
@@ -54,7 +60,8 @@ app.use(session({
   cookie: {
     maxAge:   1000 * 60 * 60 * 24 * 7, // 7 days
     httpOnly: true,
-    secure:   process.env.NODE_ENV === 'production'
+    secure:   isProduction,   // HTTPS only on Render
+    sameSite: isProduction ? 'none' : 'lax' // 'none' required for cross-site + Firefox
   }
 }));
 
@@ -66,7 +73,6 @@ app.use(passport.session());
 app.use(flash());
 
 // ── Global Template Variables ─────────────────────────────────
-// Makes user, error, success available in every EJS template
 app.use((req, res, next) => {
   res.locals.user    = req.user || null;
   res.locals.error   = req.flash('error')[0]   || null;
@@ -92,7 +98,7 @@ app.get('/docs', (req, res) => {
   res.render('pages/docs', { title: 'Docs' });
 });
 
-// ── Checkout (Lemon Squeezy — Week 4) ────────────────────────
+// ── Checkout (Lemon Squeezy) ──────────────────────────────────
 app.get('/checkout/pro', (req, res) => {
   res.redirect('https://bloxig.lemonsqueezy.com/checkout/pro');
 });

@@ -11,6 +11,7 @@ const passport   = require('passport');
 const flash      = require('connect-flash');
 const helmet     = require('helmet');
 const path       = require('path');
+const cors       = require('cors');
 
 const connectDB  = require('./config/db');
 require('./config/passport')(passport);
@@ -28,13 +29,19 @@ const app = express();
 // ── Trust Render proxy (MUST be before session) ───────────────
 // Required for secure cookies to work on Render + Firefox
 app.set('trust proxy', 1);
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 // ── Connect Database ──────────────────────────────────────────
 connectDB();
 
 // ── Security headers ──────────────────────────────────────────
 app.use(helmet({
-  contentSecurityPolicy: false
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: false
 }));
 
 // ── View Engine ───────────────────────────────────────────────

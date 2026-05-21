@@ -14,13 +14,13 @@
         <div class="form-field">
           <label class="form-label" for="firstName">First name</label>
           <input class="form-input" type="text" id="firstName" name="firstName"
-            placeholder="Lumu" required maxlength="50"
+            placeholder="First" required maxlength="50"
             value="<%= typeof formData !== 'undefined' && formData.firstName ? formData.firstName : '' %>" />
         </div>
         <div class="form-field">
           <label class="form-label" for="lastName">Last name</label>
           <input class="form-input" type="text" id="lastName" name="lastName"
-            placeholder="Sharma" required maxlength="50"
+            placeholder="Last" required maxlength="50"
             value="<%= typeof formData !== 'undefined' && formData.lastName ? formData.lastName : '' %>" />
         </div>
       </div>
@@ -74,7 +74,7 @@
       <div class="form-field">
         <label class="form-label" for="confirmPassword">Confirm password</label>
         <input class="form-input" type="password" id="confirmPassword" name="confirmPassword"
-          placeholder="Repeat your password" required maxlength="20"
+          placeholder="Re-type your password" required maxlength="20"
           autocomplete="new-password" />
         <p id="matchMsg" style="font-size:10px;margin-top:4px;display:none;"></p>
       </div>

@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title><%= title %> — Bloxig Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #080808;
+      --bg-sidebar:   #0a0a0a;
+      --bg-card:      #0f0f0f;
+      --bg-elevated:  #141414;
+      --bg-hover:     rgba(255,255,255,0.03);
+      --border:       rgba(255,255,255,0.07);
+      --border-light: rgba(255,255,255,0.04);
+      --text:         #efefef;
+      --text-secondary: #888;
+      --text-muted:   #444;
+      --accent:       #4f7bf7;
+      --accent-dim:   rgba(79,123,247,0.12);
+      --success:      #3dd68c;
+      --success-dim:  rgba(61,214,140,0.1);
+      --warning:      #f5a623;
+      --warning-dim:  rgba(245,166,35,0.1);
+      --danger:       #e5484d;
+      --danger-dim:   rgba(229,72,77,0.1);
+      --gold:         #f0b429;
+      --sidebar-w:    220px;
+      --radius:       10px;
+      --radius-sm:    6px;
+    }
+
+    body {
+      font-family: 'Geist', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      min-height: 100vh;
+      font-size: 14px;
+    }
+
+    /* ── Sidebar ───────────────────────────────────────────── */
+    .sidebar {
+      width: var(--sidebar-w);
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      z-index: 100;
+    }
+
+    .sidebar-brand {
+      padding: 20px 18px 16px;
+      border-bottom: 1px solid var(--border-light);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-mark {
+      width: 22px; height: 22px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2.5px;
+      flex-shrink: 0;
+    }
+
+    .brand-mark span {
+      background: var(--accent);
+      border-radius: 2.5px;
+    }
+
+    .brand-mark span:last-child { opacity: 0.3; }
+
+    .brand-text { display: flex; flex-direction: column; }
+    .brand-name { font-size: 13px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; }
+    .brand-sub  { font-size: 9px; color: var(--text-muted); font-family: 'Geist Mono', monospace; margin-top: 2px; letter-spacing: 0.08em; }
+
+    .sidebar-nav {
+      flex: 1;
+      padding: 12px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      overflow-y: auto;
+    }
+
+    .nav-section {
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 12px 8px 6px;
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 400;
+      transition: all 0.12s;
+      position: relative;
+    }
+
+    .nav-link:hover {
+      background: var(--bg-hover);
+      color: var(--text);
+    }
+
+    .nav-link.active {
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+
+    .nav-link svg { flex-shrink: 0; opacity: 0.7; }
+    .nav-link.active svg { opacity: 1; }
+
+    .nav-badge {
+      margin-left: auto;
+      font-size: 10px;
+      font-family: 'Geist Mono', monospace;
+      background: rgba(255,255,255,0.06);
+      border-radius: 4px;
+      padding: 1px 5px;
+      color: var(--text-muted);
+    }
+
+    .sidebar-footer {
+      padding: 12px 10px;
+      border-top: 1px solid var(--border-light);
+    }
+
+    .admin-info {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+    }
+
+    .admin-avatar {
+      width: 26px; height: 26px;
+      background: var(--accent);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .admin-name  { font-size: 12px; font-weight: 500; }
+    .admin-role  { font-size: 10px; color: var(--text-muted); }
+
+    .logout-link {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 12px;
+      margin-top: 4px;
+      transition: all 0.12s;
+    }
+
+    .logout-link:hover { color: var(--danger); background: var(--danger-dim); }
+
+    /* ── Main content ──────────────────────────────────────── */
+    .main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    .topbar {
+      height: 52px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 28px;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 50;
+    }
+
+    .topbar-title {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .topbar-breadcrumb {
+      font-size: 13px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .topbar-breadcrumb span { color: var(--text-muted); }
+    .topbar-breadcrumb b   { color: var(--text-secondary); font-weight: 400; }
+
+    .topbar-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+    .content { padding: 28px; flex: 1; }
+
+    /* ── Cards & Stats ─────────────────────────────────────── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 500;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      color: var(--text);
+    }
+
+    .stat-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+
+    .stat-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ── Table ─────────────────────────────────────────────── */
+    .section {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+    }
+
+    .section-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .section-action {
+      font-size: 12px;
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .section-action:hover { text-decoration: underline; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th {
+      padding: 10px 20px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-align: left;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-bottom: 1px solid var(--border);
+    }
+
+    td {
+      padding: 12px 20px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--bg-hover); }
+
+    /* ── Badges ────────────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      border-radius: 5px;
+      padding: 2px 8px;
+    }
+
+    .badge-free     { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+    .badge-pro      { background: var(--accent-dim);  color: var(--accent); }
+    .badge-lifetime { background: rgba(240,180,41,0.1); color: var(--gold); }
+    .badge-success  { background: var(--success-dim); color: var(--success); }
+    .badge-danger   { background: var(--danger-dim);  color: var(--danger); }
+
+    /* ── Buttons ───────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 500;
+      font-family: 'Geist', sans-serif;
+      cursor: pointer;
+      border: 1px solid transparent;
+      text-decoration: none;
+      transition: all 0.12s;
+    }
+
+    .btn-primary  { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn-primary:hover { opacity: 0.85; }
+    .btn-ghost    { background: transparent; color: var(--text-secondary); border-color: var(--border); }
+    .btn-ghost:hover { border-color: rgba(255,255,255,0.15); color: var(--text); }
+    .btn-danger   { background: transparent; color: var(--danger); border-color: rgba(229,72,77,0.3); }
+    .btn-danger:hover { background: var(--danger-dim); }
+    .btn-sm { padding: 4px 10px; font-size: 11px; }
+
+    /* ── Form elements ─────────────────────────────────────── */
+    .input {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 12px;
+      font-size: 13px;
+      font-family: 'Geist', sans-serif;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.12s;
+    }
+
+    .input:focus { border-color: rgba(79,123,247,0.5); }
+
+    select.input { cursor: pointer; }
+
+    /* ── Flash ─────────────────────────────────────────────── */
+    .flash {
+      padding: 10px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .flash-success { background: var(--success-dim); color: var(--success); border: 1px solid rgba(61,214,140,0.2); }
+    .flash-error   { background: var(--danger-dim);  color: var(--danger);  border: 1px solid rgba(229,72,77,0.2); }
+
+    /* ── Modal ─────────────────────────────────────────────── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .modal-overlay.open { display: flex; }
+
+    .modal {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      width: 100%;
+      max-width: 480px;
+      padding: 28px;
+    }
+
+    .modal-title {
+      font-size: 16px;
+      font-weight: 500;
+      letter-spacing: -0.02em;
+      margin-bottom: 20px;
+    }
+
+    .modal-field { margin-bottom: 14px; }
+
+    .modal-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }
+
+    .modal-input {
+      width: 100%;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 9px 12px;
+      font-size: 13px;
+      font-family: 'Geist', sans-serif;
+      color: var(--text);
+      outline: none;
+    }
+
+    .modal-input:focus { border-color: rgba(79,123,247,0.5); }
+
+    textarea.modal-input { resize: vertical; min-height: 80px; }
+
+    .modal-footer {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 24px;
+    }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .mono { font-family: 'Geist Mono', monospace; font-size: 12px; }
+    .text-muted { color: var(--text-muted); }
+    .text-right { text-align: right; }
+  </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-mark">
+      <span></span><span></span>
+      <span></span><span></span>
+    </div>
+    <div class="brand-text">
+      <span class="brand-name">Bloxig</span>
+      <span class="brand-sub">ADMIN PANEL</span>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <span class="nav-section">Overview</span>
+
+    <a href="/admin" class="nav-link <%= title === 'Admin Dashboard' ? 'active' : '' %>">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <rect x="1" y="1" width="5.5" height="5.5" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="8.5" y="1" width="5.5" height="5.5" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="1" y="8.5" width="5.5" height="5.5" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1.5" stroke="currentColor" stroke-width="1.2" opacity="0.4"/>
+      </svg>
+      Dashboard
+    </a>
+
+    <span class="nav-section">Manage</span>
+
+    <a href="/admin/users" class="nav-link <%= title === 'Users' ? 'active' : '' %>">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <circle cx="7.5" cy="5" r="2.5" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M2 13c0-3 2.5-5 5.5-5s5.5 2 5.5 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+      Users
+    </a>
+
+    <a href="/admin/assets" class="nav-link <%= title === 'Marketplace Assets' ? 'active' : '' %>">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <rect x="1" y="4" width="13" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M5 4V3a2.5 2.5 0 015 0v1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <path d="M1 8h13" stroke="currentColor" stroke-width="1.2"/>
+      </svg>
+      Assets
+    </a>
+
+    <a href="/admin/projects" class="nav-link <%= title === 'Projects' ? 'active' : '' %>">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <rect x="1" y="1" width="13" height="13" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M4 5h7M4 7.5h5M4 10h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+      Projects
+    </a>
+
+    <span class="nav-section">Site</span>
+
+    <a href="/" target="_blank" class="nav-link">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <circle cx="7.5" cy="7.5" r="6" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M7.5 1.5c-2 2-2 9 0 12M1.5 7.5h12" stroke="currentColor" stroke-width="1.2"/>
+      </svg>
+      View site
+    </a>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="admin-info">
+      <div class="admin-avatar"><%= admin.firstName[0] %><%= admin.lastName[0] %></div>
+      <div>
+        <div class="admin-name"><%= admin.firstName %></div>
+        <div class="admin-role">Administrator</div>
+      </div>
+    </div>
+    <a href="/admin/logout" class="logout-link">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+        <path d="M8.5 6.5H2M8.5 6.5L6.5 4.5M8.5 6.5L6.5 8.5M5 2H3a1 1 0 00-1 1v7a1 1 0 001 1h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Sign out
+    </a>
+  </div>
+</aside>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-breadcrumb">
+      <span>Admin</span>
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <b><%= title %></b>
+    </div>
+  </div>
+
+  <div class="content">

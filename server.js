@@ -1,8 +1,7 @@
-//cat > /mnt/user-data/outputs/figblox/server.js << 'SERVEREOF'
 // ============================================================
-// server.js — Bloxig Express Entry Point
+// server.js — Bloxig Express Entry Point v2.1
+// ADDED: Rate limiting on all routes
 // ============================================================
-
 require('dotenv').config();
 const express    = require('express');
 const session    = require('express-session');
@@ -12,11 +11,11 @@ const flash      = require('connect-flash');
 const helmet     = require('helmet');
 const path       = require('path');
 const cors       = require('cors');
-
+const rateLimit  = require('express-rate-limit');  // ← NEW
 const connectDB  = require('./config/db');
 require('./config/passport')(passport);
 
-// ── Routes ────────────────────────────────────────────────────
+// ── Routes ───────────────────────────────────────────────────
 const authRoutes        = require('./routes/auth');
 const dashboardRoutes   = require('./routes/dashboard');
 const marketplaceRoutes = require('./routes/marketplace');
@@ -26,9 +25,10 @@ const profileRoutes     = require('./routes/profile');
 
 const app = express();
 
-// ── Trust Render proxy (MUST be before session) ───────────────
-// Required for secure cookies to work on Render + Firefox
+// ── Trust Render proxy ────────────────────────────────────────
 app.set('trust proxy', 1);
+
+// ── CORS ──────────────────────────────────────────────────────
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
@@ -44,6 +44,50 @@ app.use(helmet({
   crossOriginResourcePolicy: false
 }));
 
+// ── Rate Limiters ─────────────────────────────────────────────
+// Auth routes: 10 attempts per 15 minutes (brute force protection)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: { error: 'Too many attempts. Please try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// API export: 30 exports per minute per user (spam protection)
+const exportLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30,
+  message: { error: 'Too many export requests. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// API token: 5 attempts per 15 minutes (brute force on login)
+const tokenLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// General API: 100 requests per minute
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  message: { error: 'Too many requests. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply limiters BEFORE routes
+app.use('/auth/login',    authLimiter);
+app.use('/auth/signup',   authLimiter);
+app.use('/api/token',     tokenLimiter);
+app.use('/api/export',    exportLimiter);
+app.use('/api',           apiLimiter);
+
 // ── View Engine ───────────────────────────────────────────────
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -53,12 +97,11 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Body Parsers ──────────────────────────────────────────────
 app.use('/api/webhooks', express.raw({ type: 'application/json' }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));  // ← limit payload size
 app.use(express.urlencoded({ extended: false }));
 
 // ── Session ───────────────────────────────────────────────────
 const isProduction = process.env.NODE_ENV === 'production';
-
 app.use(session({
   secret:            process.env.SESSION_SECRET || 'fallback_secret_change_this',
   resave:            false,
@@ -67,8 +110,8 @@ app.use(session({
   cookie: {
     maxAge:   1000 * 60 * 60 * 24 * 7, // 7 days
     httpOnly: true,
-    secure:   isProduction,   // HTTPS only on Render
-    sameSite: isProduction ? 'none' : 'lax' // 'none' required for cross-site + Firefox
+    secure:   isProduction,
+    sameSite: isProduction ? 'none' : 'lax'
   }
 }));
 
@@ -105,6 +148,15 @@ app.get('/docs', (req, res) => {
   res.render('pages/docs', { title: 'Docs' });
 });
 
+// ── Legal Pages ───────────────────────────────────────────────
+app.get('/terms', (req, res) => {
+  res.render('pages/terms', { title: 'Terms of Service' });
+});
+
+app.get('/privacy', (req, res) => {
+  res.render('pages/privacy', { title: 'Privacy Policy' });
+});
+
 // ── Checkout (Lemon Squeezy) ──────────────────────────────────
 app.get('/checkout/pro', (req, res) => {
   res.redirect('https://bloxig.lemonsqueezy.com/checkout/pro');
@@ -127,6 +179,6 @@ app.use((err, req, res, next) => {
 // ── Start Server ──────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`\n🚀 Bloxig running at http://localhost:${PORT}`);
-  console.log(`   Environment: ${process.env.NODE_ENV || 'development'}\n`);
+  console.log(`\n  🚀 Bloxig running on port ${PORT}`);
+  console.log(`  Environment: ${process.env.NODE_ENV || 'development'}\n`);
 });

@@ -254,6 +254,77 @@ node scripts/seed.js
   - Hover effects in `global.css` transitions only — no JS needed for basic hovers
   - Seed script lives in `scripts/seed.js`, run with `node scripts/seed.js`
 
+
+--- new updated files ---
+## 💻 Hardware Setup
+
+| Machine | Use |
+|---------|-----|
+| MacBook Pro 2012 (MacBookPro9,2) | Roblox Studio, Node.js server, MongoDB, VS Code, backend |
+| Other laptop (newer) | Figma Desktop, plugin development, plugin testing, publishing |
+
+**Mac limitations:**
+- Max macOS: Catalina 10.15
+- Figma Desktop not supported (dropped Catalina support)
+- No plugin development on this machine
+- Use browser Figma for design viewing only
+
+**Figma Plugin workflow:**
+- Develop + test on newer laptop only
+- Publish updates from newer laptop
+- Mac uses published version only
+
+---
+
+## 🔌 Plugin Architecture (v2.0 — CURRENT)
+
+**Pipeline:** Figma plugin → POST /api/export → MongoDB → GET /api/import → Roblox plugin
+
+**Status:** Pipeline fully working end to end. Quality issues being fixed.
+
+### What was broken / now fixed:
+- Positions/sizes wrong → ScaleConverter getReferenceSize() fixed
+- Text scaling → lockText() now called correctly
+- Wrong Roblox classes → Prefix system added in Generator.lua v3.0
+- Images missing → Raster export added in code.ts v2.0
+
+### Prefix system (v2.0):
+| Prefix | Roblox Class |
+|--------|-------------|
+| .textbutton | TextButton |
+| .imagebutton | ImageButton |
+| .scrollv | ScrollingFrame (vertical) |
+| .scrollh | ScrollingFrame (horizontal) |
+| .canvas | CanvasGroup |
+| .raster | ImageLabel (PNG baked) |
+| .input | TextBox |
+| .viewport | ViewportFrame |
+| .ignore | skip node entirely |
+
+### Raster image pipeline:
+1. Figma plugin detects .raster layers + IMAGE fills + VECTOR nodes
+2. exportAsync() each to PNG, convert to base64
+3. Bundle into payload.images { imageName: base64 }
+4. Server stores images (TODO)
+5. Roblox fetches + uploads via Open Cloud API (TODO)
+6. Generator.linkImages() wires rbxassetid:// to ImageLabels
+
+### Files changed in v2.0:
+- code.ts → prefix parser, raster detection, exportAsync pipeline
+- code.js → compiled from code.ts
+- Generator.lua → prefix dispatch system, linkImages() function
+
+### Competitor research (Figblox):
+- figblox.xyz — fully local, no server, ZIP export
+- Has: .raster tags, auto-layout, prefix system, Link Images button,
+  import preview, undo/redo, screen insets, layer panel
+- Their image flow: raster to PNG in ZIP → manual upload to Roblox Asset Manager → Link Images button matches by name
+- Your edge: server-based sync, SmartMerge, account system, SaaS model
+
+## 🚦 Current Session Notes
+- Last worked on: Prefix system + raster export (code.ts v2.0, Generator.lua v3.0)
+- Next task: Backend image storage in server.js + Roblox image upload flow
+- Blockers: Can only do Figma plugin work on newer laptop, not 2012 Mac
 ---
 
 *Read this file at the start of every session. Update "Current Session Notes" each time.*

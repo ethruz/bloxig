@@ -1,12 +1,11 @@
 -- ============================================================
--- SmartMerge.lua
--- Bloxig Roblox Plugin — Requirement 3
+-- SmartMerge.lua — Bloxig v2.1 (FIXED)
 --
--- Diffs incoming JSON against existing Roblox instances using
--- the Figblox_ID attribute. On match: updates ONLY visual
--- properties (Position, Size, Color, Transparency, Gradient,
--- Stroke, Corner). NEVER touches LocalScript or ModuleScript.
--- Orphaned elements are FLAGGED, not deleted.
+-- FIX 1: frameW/frameH passed to ALL ScaleConverter calls
+--         so edit-mode positions/sizes are correct.
+-- FIX 2: lockText() called on every text element after update.
+-- FIX 3: lockStroke() called on every stroked element after update.
+-- FIX 4: apply() double-call bug fixed — stats captured in pcall.
 -- ============================================================
 
 local ScaleConverter = require(script.Parent.ScaleConverter)
@@ -14,77 +13,64 @@ local Generator      = require(script.Parent.Generator)
 
 local SmartMerge = {}
 
--- ── Classes we NEVER touch (developer's logic lives here) ────
 local PROTECTED_CLASSES = {
-	LocalScript      = true,
-	ModuleScript     = true,
-	Script           = true,
-	RemoteEvent      = true,
-	RemoteFunction   = true,
-	BindableEvent    = true,
+	LocalScript      = true, ModuleScript     = true,
+	Script           = true, RemoteEvent      = true,
+	RemoteFunction   = true, BindableEvent    = true,
 	BindableFunction = true,
 }
 
--- ── Build a flat map of { [Figblox_ID] = Instance } ─────────
--- Scans the full subtree of a container.
+-- ── Build flat { [Figblox_ID] = Instance } map ───────────────
 local function buildIDMap(container)
 	local map = {}
-
 	local function scan(inst)
 		local id = inst:GetAttribute("Figblox_ID")
-		if id then
-			map[id] = inst
-		end
-		for _, child in ipairs(inst:GetChildren()) do
-			scan(child)
-		end
+		if id then map[id] = inst end
+		for _, child in ipairs(inst:GetChildren()) do scan(child) end
 	end
-
 	scan(container)
 	return map
 end
 
--- ── Collect all Figblox_IDs from a JSON node tree ────────────
+-- ── Collect all IDs from JSON tree ───────────────────────────
 local function collectJSONIds(nodes, result)
 	result = result or {}
 	if not nodes then return result end
 	for _, node in ipairs(nodes) do
 		result[node.id] = true
-		if node.children then
-			collectJSONIds(node.children, result)
-		end
+		if node.children then collectJSONIds(node.children, result) end
 	end
 	return result
 end
 
--- ── Update only visual properties on an existing instance ────
--- Requirement 3: ONLY update Position, Size, Color, Transparency.
--- DO NOT delete or modify protected script children.
-local function updateVisualProperties(inst, node, parent)
+-- ── Update visual properties on existing instance ────────────
+-- ✅ FIX 1: All ScaleConverter calls now pass frameW, frameH
+-- ✅ FIX 2: lockText() called after text properties set
+-- ✅ FIX 3: lockStroke() called after stroke applied
+local function updateVisualProperties(inst, node, parent, frameW, frameH)
+	frameW = frameW or 1280
+	frameH = frameH or 720
 
-	-- Position and Size — use ScaleConverter
-	inst.Position = ScaleConverter.toPosition(node.x or 0, node.y or 0, parent)
-	inst.Size     = ScaleConverter.toSize(node.width or 0, node.height or 0, parent)
+	-- Position + Size — now uses explicit frame dims (edit mode safe)
+	inst.Position = ScaleConverter.toPosition(node.x or 0, node.y or 0, parent, frameW, frameH)
+	inst.Size     = ScaleConverter.toSize(node.width or 0, node.height or 0, parent, frameW, frameH)
 	inst.Visible  = node.visible ~= false
 
-	-- ── Background color / transparency ───────────────────────
-	if inst:IsA("Frame") or inst:IsA("TextLabel") then
+	-- ── Background fill ───────────────────────────────────────
+	if inst:IsA("Frame") or inst:IsA("TextLabel") or
+	   inst:IsA("CanvasGroup") or inst:IsA("ScrollingFrame") then
 		if node.fills and #node.fills > 0 then
 			local fill = node.fills[1]
 
 			if fill.type == "SOLID" and fill.color then
 				inst.BackgroundColor3       = ScaleConverter.toColor3(fill.color)
 				inst.BackgroundTransparency = 1 - math.clamp(fill.color.a or 1, 0, 1)
-
-				-- Remove any existing UIGradient (fill type changed to solid)
 				local old = inst:FindFirstChildOfClass("UIGradient")
 				if old then old:Destroy() end
 
 			elseif fill.type == "GRADIENT_LINEAR" or fill.type == "GRADIENT_RADIAL" then
 				inst.BackgroundColor3       = Color3.new(1, 1, 1)
 				inst.BackgroundTransparency = 0
-
-				-- Update or create UIGradient
 				local gradient = inst:FindFirstChildOfClass("UIGradient")
 					or Instance.new("UIGradient")
 				gradient.Color        = ScaleConverter.toColorSequence(fill.gradientStops)
@@ -94,7 +80,6 @@ local function updateVisualProperties(inst, node, parent)
 			end
 		end
 
-		-- Overall opacity
 		if node.opacity and node.opacity < 1 then
 			inst.BackgroundTransparency = math.max(
 				inst.BackgroundTransparency,
@@ -103,28 +88,24 @@ local function updateVisualProperties(inst, node, parent)
 		end
 	end
 
-	-- ── TextLabel-specific ────────────────────────────────────
-	if inst:IsA("TextLabel") or inst:IsA("TextButton") then
-		if node.characters ~= nil then
-			inst.Text = node.characters
-		end
-		if node.fontSize then
-			inst.TextSize = node.fontSize
-		end
+	-- ── Text properties ───────────────────────────────────────
+	if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then
+		if node.characters ~= nil then inst.Text = node.characters end
 		if node.fills and #node.fills > 0 then
 			local fill = node.fills[1]
 			if fill.type == "SOLID" and fill.color then
-				inst.TextColor3      = ScaleConverter.toColor3(fill.color)
+				inst.TextColor3       = ScaleConverter.toColor3(fill.color)
 				inst.TextTransparency = 1 - math.clamp(fill.color.a or 1, 0, 1)
 			end
 		end
+
+		-- ✅ FIX 2: Lock text — TextScaled=false, exact px size
+		ScaleConverter.lockText(inst, node, frameH)
 	end
 
-	-- ── ImageLabel-specific ───────────────────────────────────
+	-- ── Image ─────────────────────────────────────────────────
 	if inst:IsA("ImageLabel") then
 		inst.ImageTransparency = ScaleConverter.toTransparency(node.opacity)
-		-- Note: Image asset ID not updated here (user may have custom asset)
-		-- UIAspectRatioConstraint — update ratio if size changed
 		local arc = inst:FindFirstChildOfClass("UIAspectRatioConstraint")
 		if arc and node.width and node.height and node.height > 0 then
 			arc.AspectRatio = node.width / node.height
@@ -135,11 +116,8 @@ local function updateVisualProperties(inst, node, parent)
 	if node.cornerRadius then
 		local corner = inst:FindFirstChildOfClass("UICorner")
 			or Instance.new("UICorner")
-		local ref = math.min(
-			(node.width or 100),
-			(node.height or 100)
-		)
-		corner.CornerRadius = ScaleConverter.toUDim(node.cornerRadius, ref)
+		local ref = math.min(node.width or 100, node.height or 100)
+		corner.CornerRadius = ScaleConverter.toUDim(node.cornerRadius, math.max(1, ref))
 		corner.Parent = inst
 	end
 
@@ -148,50 +126,49 @@ local function updateVisualProperties(inst, node, parent)
 		local strokeData = node.strokes[1]
 		local uiStroke   = inst:FindFirstChildOfClass("UIStroke")
 			or Instance.new("UIStroke")
-		uiStroke.Thickness = node.strokeWeight or 1
+		uiStroke.Thickness = math.max(0, node.strokeWeight or 1)
 		if strokeData.color then
 			uiStroke.Color        = ScaleConverter.toColor3(strokeData.color)
 			uiStroke.Transparency = 1 - math.clamp(strokeData.color.a or 1, 0, 1)
 		end
 		uiStroke.Parent = inst
+
+		-- ✅ FIX 3: Lock stroke — scale relative to frame width
+		ScaleConverter.lockStroke(inst, node, frameW)
 	end
 
-	-- Mark as synced (clear any previous orphan flag)
+	-- Clear orphan flag
 	inst:SetAttribute("Figblox_Orphan", nil)
 	inst:SetAttribute("Figblox_Name",   node.name or inst.Name)
 end
 
--- ── Preview entry: build diff without applying changes ───────
--- Returns a table with { new={}, changed={}, synced={} }
--- Used to show the [+] [~] [=] import preview before confirm.
---
--- @param payload    table     Full JSON payload from server
--- @param container  Instance  The ScreenGui or root Frame
--- @return table  { new=[], changed=[], synced=[] }
+-- ── Preview: diff without applying ───────────────────────────
 function SmartMerge.preview(payload, container)
-	local idMap   = buildIDMap(container)
-	local result  = { new = {}, changed = {}, synced = {} }
+	local idMap  = buildIDMap(container)
+	local result = { new = {}, changed = {}, synced = {} }
+
+	-- ✅ FIX 1: Get frame dims for accurate position comparison
+	local frameW = payload.frame and payload.frame.width  or 1280
+	local frameH = payload.frame and payload.frame.height or 720
 
 	local function scan(nodes)
 		if not nodes then return end
 		for _, node in ipairs(nodes) do
 			if idMap[node.id] then
-				-- Exists — check if visually different
-				local inst = idMap[node.id]
-				local posMatch = inst.Position ==
-					ScaleConverter.toPosition(node.x or 0, node.y or 0, inst.Parent)
-				local sizeMatch = inst.Size ==
-					ScaleConverter.toSize(node.width or 0, node.height or 0, inst.Parent)
+				local inst      = idMap[node.id]
+				local expectedPos  = ScaleConverter.toPosition(
+					node.x or 0, node.y or 0, inst.Parent, frameW, frameH)
+				local expectedSize = ScaleConverter.toSize(
+					node.width or 0, node.height or 0, inst.Parent, frameW, frameH)
 
-				if posMatch and sizeMatch then
-					table.insert(result.synced, { id=node.id, name=node.name })
+				if inst.Position == expectedPos and inst.Size == expectedSize then
+					table.insert(result.synced,  { id = node.id, name = node.name })
 				else
-					table.insert(result.changed, { id=node.id, name=node.name })
+					table.insert(result.changed, { id = node.id, name = node.name })
 				end
 			else
-				table.insert(result.new, { id=node.id, name=node.name })
+				table.insert(result.new, { id = node.id, name = node.name })
 			end
-
 			if node.children then scan(node.children) end
 		end
 	end
@@ -200,16 +177,17 @@ function SmartMerge.preview(payload, container)
 	return result
 end
 
--- ── Main entry: apply Smart Merge ────────────────────────────
--- @param payload    table     Full JSON payload from /api/import
--- @param container  Instance  ScreenGui or root Frame to merge into
--- @return table  { merged=n, created=n, orphaned=n }
+-- ── Apply Smart Merge ─────────────────────────────────────────
+-- ✅ FIX 4: apply() no longer called twice — stats returned once
 function SmartMerge.apply(payload, container)
-	local idMap    = buildIDMap(container)
-	local jsonIds  = collectJSONIds(payload.nodes)
-	local stats    = { merged = 0, created = 0, orphaned = 0 }
+	local idMap   = buildIDMap(container)
+	local jsonIds = collectJSONIds(payload.nodes)
+	local stats   = { merged = 0, created = 0, orphaned = 0 }
 
-	-- ── Step 1: Update existing / create new ─────────────────
+	-- ✅ FIX 1: Extract frame dims ONCE, pass everywhere
+	local frameW = math.max(1, payload.frame and payload.frame.width  or 1280)
+	local frameH = math.max(1, payload.frame and payload.frame.height or 720)
+
 	local function processNodes(nodes, parent)
 		if not nodes then return end
 
@@ -217,59 +195,52 @@ function SmartMerge.apply(payload, container)
 			local existing = idMap[node.id]
 
 			if existing then
-				-- ── MATCH: update visual only ─────────────────
-				-- Requirement 3: check children BEFORE updating
-				-- Skip if instance has protected script children
-				-- (we update the instance itself, not its children)
-				updateVisualProperties(existing, node, existing.Parent)
+				-- MATCH: update visual properties only
+				updateVisualProperties(existing, node, existing.Parent, frameW, frameH)
 				stats.merged = stats.merged + 1
 
-				-- Recurse into children (create new ones, merge existing)
 				if node.children then
 					processNodes(node.children, existing)
 				end
-
 			else
-				-- ── NO MATCH: create brand new element ────────
-				node._frameWidth  = payload.frame and payload.frame.width  or 1280
-				node._frameHeight = payload.frame and payload.frame.height or 720
-				Generator.createInstance(node, parent)
+				-- NO MATCH: create new element via Generator
+				node._frameWidth  = frameW
+				node._frameHeight = frameH
+				Generator.createInstance(node, parent, frameW, frameH)
 				stats.created = stats.created + 1
 			end
 		end
 	end
 
-	-- Find or create the root frame
+	-- Find or create root frame
 	local rootFrame = container:FindFirstChild(
 		payload.frame and payload.frame.name or "BloxigRoot"
 	)
 
 	if not rootFrame then
-		-- First import — build fresh
 		rootFrame = Instance.new("Frame")
-		rootFrame.Name                  = payload.frame and payload.frame.name or "BloxigRoot"
-		rootFrame.Size                  = UDim2.new(1, 0, 1, 0)
-		rootFrame.Position              = UDim2.new(0, 0, 0, 0)
+		rootFrame.Name                   = payload.frame and payload.frame.name or "BloxigRoot"
+		rootFrame.Size                   = UDim2.new(1, 0, 1, 0)
+		rootFrame.Position               = UDim2.new(0, 0, 0, 0)
 		rootFrame.BackgroundTransparency = 1
 		rootFrame:SetAttribute("Figblox_ID",   payload.frame and payload.frame.id or "root")
 		rootFrame:SetAttribute("Figblox_Root", true)
+		rootFrame:SetAttribute("Figblox_W",    frameW)
+		rootFrame:SetAttribute("Figblox_H",    frameH)
 		rootFrame.Parent = container
 	end
 
 	processNodes(payload.nodes, rootFrame)
 
-	-- ── Step 2: Flag orphans (elements no longer in JSON) ─────
-	-- Requirement 3: NEVER delete. Only flag.
+	-- Flag orphans — NEVER delete, only mark
 	local function flagOrphans(inst)
 		local id = inst:GetAttribute("Figblox_ID")
 		if id and not jsonIds[id] and id ~= "root" then
 			inst:SetAttribute("Figblox_Orphan", true)
 			stats.orphaned = stats.orphaned + 1
-			warn("[Bloxig] Orphan flagged: " .. inst.Name .. " (ID: " .. id .. ")")
+			warn("[Bloxig] Orphan: " .. inst.Name .. " (ID: " .. id .. ")")
 		end
-
 		for _, child in ipairs(inst:GetChildren()) do
-			-- Requirement 3: NEVER touch protected classes
 			if not PROTECTED_CLASSES[child.ClassName] then
 				flagOrphans(child)
 			end
@@ -277,6 +248,9 @@ function SmartMerge.apply(payload, container)
 	end
 
 	flagOrphans(rootFrame)
+
+	print(string.format("[Bloxig] Merge — Created:%d Merged:%d Orphans:%d",
+		stats.created, stats.merged, stats.orphaned))
 
 	return stats
 end

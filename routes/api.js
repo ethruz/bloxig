@@ -9,46 +9,55 @@ const Project       = require('../models/Project');
 // ── POST /api/export ──────────────────────────────────────────
 // Called by Figma Plugin. Saves JSON layout to a Project.
 router.post('/export', verifyJWT, async (req, res) => {
-  const { figma_file_id, name, json_layout_data } = req.body;
+  const { figma_file_id, figma_frame_id, name, json_layout_data } = req.body;
 
   if (!json_layout_data) {
     return res.status(400).json({ error: 'json_layout_data is required.' });
   }
+  if (!figma_frame_id) {
+    return res.status(400).json({ error: 'figma_frame_id is required.' });
+  }
 
   try {
-    // ── Free tier limit: max 3 projects ───────────────────────
-    const isFree = req.user.subscription_status === 'Free';
-    if (isFree) {
-      // Count existing projects for this user
-      const projectCount = await Project.countDocuments({ owner: req.user._id });
+    // Does a project for THIS frame already exist? (update vs new)
+    const existing = await Project.findOne({
+      owner: req.user._id,
+      figma_frame_id
+    });
 
-      // Check if this is an UPDATE (existing project) or NEW project
-      const existingProject = await Project.findOne({
-        owner: req.user._id,
-        figma_file_id
-      });
+    // Enforce the Free-tier project cap on NEW projects only.
+    if (!existing) {
+      const plan = req.user.subscription_status || 'Free';
+      const FREE_LIMIT = 3;
 
-      // Only block if it's a NEW project and they're at the limit
-      if (!existingProject && projectCount >= 3) {
-        return res.status(403).json({
-          error: 'Free plan limit reached. You can only have 3 projects. Upgrade to Pro for unlimited projects.',
-          upgrade_url: '/checkout/pro',
-          limit_reached: true
-        });
+      if (plan === 'Free') {
+        const count = await Project.countDocuments({ owner: req.user._id });
+        if (count >= FREE_LIMIT) {
+          return res.status(403).json({
+            error: 'limit_reached',
+            message: `Free plan is limited to ${FREE_LIMIT} projects. Upgrade to Pro for unlimited projects.`,
+            limit: FREE_LIMIT
+          });
+        }
       }
     }
 
-    // Upsert: update existing project or create new one
+    // Update the existing frame's project, or create a new one.
     const project = await Project.findOneAndUpdate(
-      { owner: req.user._id, figma_file_id },
-      { name: name || 'Untitled', json_layout_data, updatedAt: new Date() },
+      { owner: req.user._id, figma_frame_id },
+      {
+        name: name || 'Untitled',
+        figma_file_id: figma_file_id || 'local',
+        figma_frame_id,
+        json_layout_data,
+        updatedAt: new Date()
+      },
       { new: true, upsert: true }
     );
 
     res.json({ success: true, project_id: project._id });
-
   } catch (err) {
-    console.error('[API] Export error:', err);
+    console.error(err);
     res.status(500).json({ error: 'Export failed.' });
   }
 });

@@ -228,6 +228,7 @@ function handleExport(token) {
                 body: JSON.stringify({
                     name: frameName,
                     figma_file_id: (_c = figma.fileKey) !== null && _c !== void 0 ? _c : 'local',
+                    figma_frame_id: node.id,
                     json_layout_data: payload
                 })
             });

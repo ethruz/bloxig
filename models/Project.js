@@ -15,6 +15,11 @@ const ProjectSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  figma_frame_id: {
+    type: String,
+    default: null,
+    index: true
+  },
   json_layout_data: {
     type: Object,
     default: {}

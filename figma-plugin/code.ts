@@ -290,6 +290,7 @@ async function handleExport(token: string) {
       body: JSON.stringify({
         name:             frameName,
         figma_file_id:    figma.fileKey ?? 'local',
+        figma_frame_id:   node.id,
         json_layout_data: payload
       })
     });

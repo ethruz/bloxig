@@ -1,8 +1,14 @@
 // ============================================================
-// Bloxig Figma Plugin — code.ts  v1.1
-// FIXED: Selection detection now works in browser Figma
+// Bloxig Figma Plugin — code.ts  v1.2
+// NEW in v1.2: Layer-name PREFIX PARSER
+//   .textbutton / .imagebutton / .textbox / .scrollv / .scrollh
+//   / .scrollxy / .viewport / .canvas / .frame / .textlabel
+//   / .imagelabel  + tags .raster .parent .ignore .gray .lock
+//   + state tags .hover .pressed .toggled .disabled
+// These map to fields Generator.lua ALREADY consumes, so buttons,
+// scroll frames, inputs and viewports finally build correctly.
 // ============================================================
-// UPdated code of Code.ts
+
 // ── Types ─────────────────────────────────────────────────────
 type UIMessage =
   | { type: 'EXPORT_FRAME'; token: string }
@@ -12,7 +18,7 @@ type UIMessage =
 
 interface BloxigNode {
   id:            string;
-  name:          string;
+  name:          string;          // CLEAN name (prefixes stripped)
   type:          string;
   x:             number;
   y:             number;
@@ -29,13 +35,106 @@ interface BloxigNode {
   fontSize?:     number;
   characters?:   string;
   textAlignHorizontal?: string;
+  textAlignVertical?:   string;   // now emitted (Generator already reads it)
   layoutMode?:   string;
   itemSpacing?:  number;
   paddingLeft?:  number;
   paddingRight?: number;
   paddingTop?:   number;
   paddingBottom?:number;
+
+  // ── Prefix-driven intent (consumed by Generator.lua) ─────────
+  componentType?:     string;     // "BUTTON" → TextButton
+  overflowDirection?: string;     // "VERTICAL" | "HORIZONTAL" | "BOTH" → ScrollingFrame
+  isInputField?:      boolean;    // → TextBox
+  is3DFrame?:         boolean;    // → ViewportFrame
+  // ── Tags carried through for later steps (images / states) ───
+  state?:             string;     // HOVER | PRESSED | TOGGLED | DISABLED
+  isRaster?:          boolean;    // → bake to PNG (Step 3)
+  isParentHost?:      boolean;    // → this child hosts its siblings (Step 3/4)
+  isGrayscale?:       boolean;    // → grayscale PNG (Step 3)
+
   children:      BloxigNode[];
+}
+
+// ── Prefix tables ─────────────────────────────────────────────
+type Role =
+  | 'TEXTBUTTON' | 'IMAGEBUTTON' | 'TEXTBOX'
+  | 'SCROLLV' | 'SCROLLH' | 'SCROLLXY'
+  | 'VIEWPORT' | 'CANVAS'
+  | 'FRAME' | 'TEXTLABEL' | 'IMAGELABEL';
+
+const ROLE_PREFIXES: { [k: string]: Role } = {
+  textbutton:  'TEXTBUTTON',
+  imagebutton: 'IMAGEBUTTON',
+  textbox:     'TEXTBOX',
+  scrollv:     'SCROLLV',
+  scrollh:     'SCROLLH',
+  scrollxy:    'SCROLLXY',
+  viewport:    'VIEWPORT',
+  canvas:      'CANVAS',
+  canvasgroup: 'CANVAS',
+  frame:       'FRAME',
+  textlabel:   'TEXTLABEL',
+  imagelabel:  'IMAGELABEL',
+  imageframe:  'IMAGELABEL', // alias
+};
+
+const STATE_PREFIXES: { [k: string]: string } = {
+  hover:    'HOVER',
+  pressed:  'PRESSED',
+  clicked:  'PRESSED',
+  toggled:  'TOGGLED',
+  disabled: 'DISABLED',
+};
+
+interface ParsedName {
+  cleanName:    string;
+  role:         Role | null;
+  state:        string | null;
+  isRaster:     boolean;
+  isParentHost: boolean;
+  isIgnored:    boolean;
+  isGrayscale:  boolean;
+  isLocked:     boolean;
+}
+
+// ── parseLayerName ────────────────────────────────────────────
+// "  .imagebutton .raster Close X " → { role: IMAGEBUTTON, isRaster, cleanName: "Close X" }
+// Prefixes are leading dot-tokens; the text after the LAST prefix
+// becomes the Roblox-facing name.
+function parseLayerName(raw: string): ParsedName {
+  const out: ParsedName = {
+    cleanName: '', role: null, state: null,
+    isRaster: false, isParentHost: false, isIgnored: false,
+    isGrayscale: false, isLocked: false
+  };
+
+  if (!raw || raw.trim().length === 0) {
+    out.cleanName = 'Element';
+    return out;
+  }
+
+  const tokens = raw.trim().split(/\s+/);
+  let i = 0;
+  for (; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if (tok.charAt(0) !== '.') break;          // first non-dot token → name starts here
+    const key = tok.slice(1).toLowerCase();
+
+    if (ROLE_PREFIXES[key])       out.role  = ROLE_PREFIXES[key];
+    else if (STATE_PREFIXES[key]) out.state = STATE_PREFIXES[key];
+    else if (key === 'raster')    out.isRaster     = true;
+    else if (key === 'parent')    out.isParentHost = true;
+    else if (key === 'ignore')    out.isIgnored    = true;
+    else if (key === 'gray' || key === 'grayscale') out.isGrayscale = true;
+    else if (key === 'lock')      out.isLocked     = true;
+    // unknown .token → just skip it, keep scanning prefixes
+  }
+
+  const name = tokens.slice(i).join(' ').trim();
+  out.cleanName = name.length > 0 ? name : 'Element';
+  return out;
 }
 
 // ── Show UI ───────────────────────────────────────────────────
@@ -51,7 +150,6 @@ function getSelectionPayload() {
   const sel = figma.currentPage.selection;
   const first = sel[0];
 
-  // Check if selected node is an exportable type
   const exportable = first && (
     first.type === 'FRAME' ||
     first.type === 'COMPONENT' ||
@@ -86,10 +184,8 @@ function sendInitialContext() {
   });
 }
 
-// Send immediately on open
 sendInitialContext();
 
-// ── Selection change — fires when user clicks a frame ─────────
 figma.on('selectionchange', () => {
   figma.ui.postMessage({
     type:    'SELECTION_CHANGED',
@@ -97,7 +193,6 @@ figma.on('selectionchange', () => {
   });
 });
 
-// ── Page change listener ──────────────────────────────────────
 figma.on('currentpagechange', () => {
   sendInitialContext();
 });
@@ -128,19 +223,10 @@ function validateMessage(msg: unknown): UIMessage | null {
 // ── Message handler ───────────────────────────────────────────
 figma.ui.onmessage = async (rawMsg: unknown) => {
   const msg = validateMessage(rawMsg);
+  if (!msg) return;
 
-  if (!msg) return; // ignore unknown messages silently
-
-  if (msg.type === 'PING') {
-    // UI is ready — re-send current selection state
-    sendInitialContext();
-    return;
-  }
-
-  if (msg.type === 'CANCEL') {
-    figma.closePlugin();
-    return;
-  }
+  if (msg.type === 'PING') { sendInitialContext(); return; }
+  if (msg.type === 'CANCEL') { figma.closePlugin(); return; }
 
   if (msg.type === 'RESIZE') {
     figma.ui.resize(
@@ -171,7 +257,7 @@ async function handleExport(token: string) {
   const node = selection[0];
 
   const validTypes = ['FRAME','COMPONENT','COMPONENT_SET','SECTION','GROUP'];
-  if (!validTypes.includes(node.type)) {
+  if (validTypes.indexOf(node.type) === -1) {
     figma.ui.postMessage({
       type:    'ERROR',
       message: `Cannot export a ${node.type}. Please select a Frame or Component.`
@@ -190,7 +276,7 @@ async function handleExport(token: string) {
 
   figma.ui.postMessage({ type: 'PROGRESS', message: 'Serialising design...' });
 
-  let serialised: BloxigNode;
+  let serialised: BloxigNode | null;
   try {
     serialised = serialiseNode(node);
   } catch (err) {
@@ -198,11 +284,16 @@ async function handleExport(token: string) {
     return;
   }
 
+  if (!serialised) {
+    figma.ui.postMessage({ type: 'ERROR', message: 'Selected frame is tagged .ignore — nothing to export.' });
+    return;
+  }
+
   const frameW = 'width'  in node ? (node as FrameNode).width  : 100;
   const frameH = 'height' in node ? (node as FrameNode).height : 100;
 
   const payload = {
-    version:      '1.1.0',
+    version:      '1.2.0',
     exportedAt:   new Date().toISOString(),
     figmaFileKey: figma.fileKey ?? 'local',
     figmaFileId:  figma.fileKey ?? 'local',
@@ -286,13 +377,61 @@ function collectTextNodes(node: SceneNode, result: TextNode[]): void {
   }
 }
 
+// ── Apply parsed role → Generator-understood fields ───────────
+function applyRole(base: BloxigNode, parsed: ParsedName): void {
+  switch (parsed.role) {
+    case 'TEXTBUTTON':
+      base.type = 'COMPONENT';
+      base.componentType = 'BUTTON';
+      break;
+    case 'IMAGEBUTTON':
+      base.type = 'IMAGE_BUTTON';
+      break;
+    case 'TEXTBOX':
+      base.isInputField = true;
+      break;
+    case 'SCROLLV':
+      base.type = 'FRAME';
+      base.overflowDirection = 'VERTICAL';
+      break;
+    case 'SCROLLH':
+      base.type = 'FRAME';
+      base.overflowDirection = 'HORIZONTAL';
+      break;
+    case 'SCROLLXY':
+      base.type = 'FRAME';
+      base.overflowDirection = 'BOTH';
+      break;
+    case 'VIEWPORT':
+      base.is3DFrame = true;
+      break;
+    case 'TEXTLABEL':
+      base.type = 'TEXT';
+      break;
+    case 'IMAGELABEL':
+      base.type = 'IMAGE';
+      break;
+    case 'FRAME':
+      base.type = 'FRAME';
+      break;
+    // CANVAS is handled by Generator only when GROUP + opacity<1;
+    // a dedicated forceCanvas branch comes with the Step 2 Generator patch.
+    default:
+      break;
+  }
+}
+
 // ── Node serialiser ───────────────────────────────────────────
-function serialiseNode(node: SceneNode): BloxigNode {
+// Returns null when the node is tagged .ignore (so it is skipped).
+function serialiseNode(node: SceneNode): BloxigNode | null {
+  const parsed = parseLayerName(node.name);
+  if (parsed.isIgnored) return null;            // .ignore → drop entirely
+
   const n = node as any;
 
   const base: BloxigNode = {
     id:           node.id,
-    name:         node.name,
+    name:         parsed.cleanName,             // prefixes stripped
     type:         node.type,
     x:            n.x            ?? 0,
     y:            n.y            ?? 0,
@@ -306,6 +445,12 @@ function serialiseNode(node: SceneNode): BloxigNode {
     strokeWeight: n.strokeWeight ?? 0,
     children:     []
   };
+
+  // Carry tags through (used by later image/state steps)
+  if (parsed.state)        base.state        = parsed.state;
+  if (parsed.isRaster)     base.isRaster     = true;
+  if (parsed.isParentHost) base.isParentHost = true;
+  if (parsed.isGrayscale)  base.isGrayscale  = true;
 
   // Corner radius
   if (n.cornerRadius !== undefined && n.cornerRadius !== figma.mixed) {
@@ -329,13 +474,18 @@ function serialiseNode(node: SceneNode): BloxigNode {
     if (t.fontSize !== figma.mixed)  base.fontSize  = t.fontSize as number;
     if (t.fontName !== figma.mixed)  base.fontName  = t.fontName as FontName;
     if (t.textAlignHorizontal)       base.textAlignHorizontal = t.textAlignHorizontal;
+    if (t.textAlignVertical)         base.textAlignVertical   = t.textAlignVertical;
   }
 
-  // Recurse children (only visible ones)
+  // Apply prefix role AFTER the raw type is set, so it can override it
+  applyRole(base, parsed);
+
+  // Recurse children (skip invisible + skip .ignore via null filtering)
   if ('children' in node) {
     base.children = (node as ChildrenMixin).children
       .filter(c => c.visible !== false)
-      .map(c => serialiseNode(c));
+      .map(c => serialiseNode(c))
+      .filter((c): c is BloxigNode => c !== null);
   }
 
   return base;

@@ -1,13 +1,17 @@
 "use strict";
 // ============================================================
-// Bloxig Figma Plugin — code.ts  v1.2
-// NEW in v1.2: Layer-name PREFIX PARSER
-//   .textbutton / .imagebutton / .textbox / .scrollv / .scrollh
-//   / .scrollxy / .viewport / .canvas / .frame / .textlabel
-//   / .imagelabel  + tags .raster .parent .ignore .gray .lock
-//   + state tags .hover .pressed .toggled .disabled
-// These map to fields Generator.lua ALREADY consumes, so buttons,
-// scroll frames, inputs and viewports finally build correctly.
+// Bloxig Figma Plugin — code.ts  v1.3
+// FIX over v1.2: emit a `prefixes` ARRAY + clean `name` + `rawName`,
+// which is exactly what the live Generator v2.1 (parsePrefixes)
+// consumes. v1.2 stripped the prefix from the name and set fields
+// the live Generator ignores, so buttons/scroll fell back to Frame.
+//
+// Supported prefixes (must match Generator VALID_PREFIXES):
+//   .textbutton .imagebutton .scrollv .scrollh .canvas
+//   .raster .input .viewport .ignore .parent
+// Synonyms auto-mapped: .textbox->input  .canvasgroup->canvas
+//                       .scrollxy->scrollv
+// .ignore drops the node from the export entirely.
 // ============================================================
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -18,77 +22,62 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-const ROLE_PREFIXES = {
-    textbutton: 'TEXTBUTTON',
-    imagebutton: 'IMAGEBUTTON',
-    textbox: 'TEXTBOX',
-    scrollv: 'SCROLLV',
-    scrollh: 'SCROLLH',
-    scrollxy: 'SCROLLXY',
-    viewport: 'VIEWPORT',
-    canvas: 'CANVAS',
-    canvasgroup: 'CANVAS',
-    frame: 'FRAME',
-    textlabel: 'TEXTLABEL',
-    imagelabel: 'IMAGELABEL',
-    imageframe: 'IMAGELABEL', // alias
+// -- Prefix vocabulary (canonical = what Generator understands) -
+const PREFIX_SYNONYMS = {
+    textbutton: 'textbutton',
+    imagebutton: 'imagebutton',
+    scrollv: 'scrollv',
+    scrollh: 'scrollh',
+    scrollxy: 'scrollv', // Generator has no BOTH -> vertical
+    canvas: 'canvas',
+    canvasgroup: 'canvas',
+    raster: 'raster',
+    input: 'input',
+    textbox: 'input', // synonym
+    viewport: 'viewport',
+    parent: 'parent'
 };
-const STATE_PREFIXES = {
-    hover: 'HOVER',
-    pressed: 'PRESSED',
-    clicked: 'PRESSED',
-    toggled: 'TOGGLED',
-    disabled: 'DISABLED',
-};
-// ── parseLayerName ────────────────────────────────────────────
-// "  .imagebutton .raster Close X " → { role: IMAGEBUTTON, isRaster, cleanName: "Close X" }
-// Prefixes are leading dot-tokens; the text after the LAST prefix
-// becomes the Roblox-facing name.
+// -- parseLayerName --------------------------------------------
+// "  .imagebutton .raster Close X "
+//   -> { prefixes:[imagebutton,raster], cleanName:"Close X", isIgnored:false }
+// Leading dot-tokens are prefixes; text after the last one is the name.
 function parseLayerName(raw) {
     const out = {
-        cleanName: '', role: null, state: null,
-        isRaster: false, isParentHost: false, isIgnored: false,
-        isGrayscale: false, isLocked: false
+        cleanName: 'Element', prefixes: [], isIgnored: false, rawName: raw || ''
     };
-    if (!raw || raw.trim().length === 0) {
-        out.cleanName = 'Element';
+    if (!raw || raw.trim().length === 0)
         return out;
-    }
     const tokens = raw.trim().split(/\s+/);
+    const seen = {};
     let i = 0;
     for (; i < tokens.length; i++) {
         const tok = tokens[i];
         if (tok.charAt(0) !== '.')
-            break; // first non-dot token → name starts here
+            break; // first non-dot token = name start
         const key = tok.slice(1).toLowerCase();
-        if (ROLE_PREFIXES[key])
-            out.role = ROLE_PREFIXES[key];
-        else if (STATE_PREFIXES[key])
-            out.state = STATE_PREFIXES[key];
-        else if (key === 'raster')
-            out.isRaster = true;
-        else if (key === 'parent')
-            out.isParentHost = true;
-        else if (key === 'ignore')
+        if (key === 'ignore') {
             out.isIgnored = true;
-        else if (key === 'gray' || key === 'grayscale')
-            out.isGrayscale = true;
-        else if (key === 'lock')
-            out.isLocked = true;
-        // unknown .token → just skip it, keep scanning prefixes
+            continue;
+        }
+        const canon = PREFIX_SYNONYMS[key];
+        if (canon && !seen[canon]) {
+            out.prefixes.push(canon);
+            seen[canon] = true;
+        }
+        // unknown .token (e.g. .hover, .frame, .textlabel) -> skipped on purpose
     }
     const name = tokens.slice(i).join(' ').trim();
     out.cleanName = name.length > 0 ? name : 'Element';
     return out;
 }
-// ── Show UI ───────────────────────────────────────────────────
+// -- Show UI ---------------------------------------------------
 figma.showUI(__html__, {
     width: 380,
     height: 520,
     title: 'Bloxig — Export to Roblox',
     themeColors: true
 });
-// ── Helper: build selection payload ──────────────────────────
+// -- Helper: build selection payload ---------------------------
 function getSelectionPayload() {
     const sel = figma.currentPage.selection;
     const first = sel[0];
@@ -105,7 +94,7 @@ function getSelectionPayload() {
         notExportable: sel.length > 0 && !exportable
     };
 }
-// ── Send initial state to UI ──────────────────────────────────
+// -- Send initial state to UI ----------------------------------
 function sendInitialContext() {
     var _a, _b, _c, _d;
     const user = figma.currentUser;
@@ -125,7 +114,7 @@ figma.on('selectionchange', () => {
 figma.on('currentpagechange', () => {
     sendInitialContext();
 });
-// ── Message validation ────────────────────────────────────────
+// -- Message validation ----------------------------------------
 function validateMessage(msg) {
     if (!msg || typeof msg !== 'object')
         return null;
@@ -147,7 +136,7 @@ function validateMessage(msg) {
     }
     return null;
 }
-// ── Message handler ───────────────────────────────────────────
+// -- Message handler -------------------------------------------
 figma.ui.onmessage = (rawMsg) => __awaiter(void 0, void 0, void 0, function* () {
     const msg = validateMessage(rawMsg);
     if (!msg)
@@ -168,7 +157,7 @@ figma.ui.onmessage = (rawMsg) => __awaiter(void 0, void 0, void 0, function* () 
         yield handleExport(msg.token);
     }
 });
-// ── Export handler ────────────────────────────────────────────
+// -- Export handler --------------------------------------------
 function handleExport(token) {
     return __awaiter(this, void 0, void 0, function* () {
         var _a, _b, _c;
@@ -213,14 +202,15 @@ function handleExport(token) {
         }
         const frameW = 'width' in node ? node.width : 100;
         const frameH = 'height' in node ? node.height : 100;
+        const frameName = parseLayerName(node.name).cleanName;
         const payload = {
-            version: '1.2.0',
+            version: '1.3.0',
             exportedAt: new Date().toISOString(),
             figmaFileKey: (_a = figma.fileKey) !== null && _a !== void 0 ? _a : 'local',
             figmaFileId: (_b = figma.fileKey) !== null && _b !== void 0 ? _b : 'local',
             frame: {
                 id: node.id,
-                name: node.name,
+                name: frameName,
                 width: frameW,
                 height: frameH
             },
@@ -236,7 +226,7 @@ function handleExport(token) {
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    name: node.name,
+                    name: frameName,
                     figma_file_id: (_c = figma.fileKey) !== null && _c !== void 0 ? _c : 'local',
                     json_layout_data: payload
                 })
@@ -252,7 +242,7 @@ function handleExport(token) {
             const result = yield response.json();
             figma.ui.postMessage({
                 type: 'SUCCESS',
-                message: `"${node.name}" exported successfully!`,
+                message: `"${frameName}" exported successfully!`,
                 projectId: result.project_id
             });
         }
@@ -264,7 +254,7 @@ function handleExport(token) {
         }
     });
 }
-// ── Font loader ───────────────────────────────────────────────
+// -- Font loader -----------------------------------------------
 function loadAllFonts(node) {
     return __awaiter(this, void 0, void 0, function* () {
         const textNodes = [];
@@ -289,61 +279,19 @@ function collectTextNodes(node, result) {
         }
     }
 }
-// ── Apply parsed role → Generator-understood fields ───────────
-function applyRole(base, parsed) {
-    switch (parsed.role) {
-        case 'TEXTBUTTON':
-            base.type = 'COMPONENT';
-            base.componentType = 'BUTTON';
-            break;
-        case 'IMAGEBUTTON':
-            base.type = 'IMAGE_BUTTON';
-            break;
-        case 'TEXTBOX':
-            base.isInputField = true;
-            break;
-        case 'SCROLLV':
-            base.type = 'FRAME';
-            base.overflowDirection = 'VERTICAL';
-            break;
-        case 'SCROLLH':
-            base.type = 'FRAME';
-            base.overflowDirection = 'HORIZONTAL';
-            break;
-        case 'SCROLLXY':
-            base.type = 'FRAME';
-            base.overflowDirection = 'BOTH';
-            break;
-        case 'VIEWPORT':
-            base.is3DFrame = true;
-            break;
-        case 'TEXTLABEL':
-            base.type = 'TEXT';
-            break;
-        case 'IMAGELABEL':
-            base.type = 'IMAGE';
-            break;
-        case 'FRAME':
-            base.type = 'FRAME';
-            break;
-        // CANVAS is handled by Generator only when GROUP + opacity<1;
-        // a dedicated forceCanvas branch comes with the Step 2 Generator patch.
-        default:
-            break;
-    }
-}
-// ── Node serialiser ───────────────────────────────────────────
+// -- Node serialiser -------------------------------------------
 // Returns null when the node is tagged .ignore (so it is skipped).
 function serialiseNode(node) {
     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q;
     const parsed = parseLayerName(node.name);
     if (parsed.isIgnored)
-        return null; // .ignore → drop entirely
+        return null; // .ignore -> drop entirely
     const n = node;
     const base = {
         id: node.id,
-        name: parsed.cleanName, // prefixes stripped
-        type: node.type,
+        name: parsed.cleanName, // clean Roblox-facing name
+        rawName: parsed.rawName, // original, for Generator fallback
+        type: node.type, // REAL Figma type (not coerced)
         x: (_a = n.x) !== null && _a !== void 0 ? _a : 0,
         y: (_b = n.y) !== null && _b !== void 0 ? _b : 0,
         width: (_c = n.width) !== null && _c !== void 0 ? _c : 0,
@@ -356,15 +304,10 @@ function serialiseNode(node) {
         strokeWeight: (_k = n.strokeWeight) !== null && _k !== void 0 ? _k : 0,
         children: []
     };
-    // Carry tags through (used by later image/state steps)
-    if (parsed.state)
-        base.state = parsed.state;
-    if (parsed.isRaster)
-        base.isRaster = true;
-    if (parsed.isParentHost)
-        base.isParentHost = true;
-    if (parsed.isGrayscale)
-        base.isGrayscale = true;
+    // The whole point of v1.3: hand the Generator a clean prefixes array.
+    if (parsed.prefixes.length > 0) {
+        base.prefixes = parsed.prefixes;
+    }
     // Corner radius
     if (n.cornerRadius !== undefined && n.cornerRadius !== figma.mixed) {
         base.cornerRadius = n.cornerRadius;
@@ -391,8 +334,6 @@ function serialiseNode(node) {
         if (t.textAlignVertical)
             base.textAlignVertical = t.textAlignVertical;
     }
-    // Apply prefix role AFTER the raw type is set, so it can override it
-    applyRole(base, parsed);
     // Recurse children (skip invisible + skip .ignore via null filtering)
     if ('children' in node) {
         base.children = node.children

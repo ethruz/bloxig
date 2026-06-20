@@ -1,15 +1,19 @@
 // ============================================================
-// Bloxig Figma Plugin — code.ts  v1.2
-// NEW in v1.2: Layer-name PREFIX PARSER
-//   .textbutton / .imagebutton / .textbox / .scrollv / .scrollh
-//   / .scrollxy / .viewport / .canvas / .frame / .textlabel
-//   / .imagelabel  + tags .raster .parent .ignore .gray .lock
-//   + state tags .hover .pressed .toggled .disabled
-// These map to fields Generator.lua ALREADY consumes, so buttons,
-// scroll frames, inputs and viewports finally build correctly.
+// Bloxig Figma Plugin — code.ts  v1.3
+// FIX over v1.2: emit a `prefixes` ARRAY + clean `name` + `rawName`,
+// which is exactly what the live Generator v2.1 (parsePrefixes)
+// consumes. v1.2 stripped the prefix from the name and set fields
+// the live Generator ignores, so buttons/scroll fell back to Frame.
+//
+// Supported prefixes (must match Generator VALID_PREFIXES):
+//   .textbutton .imagebutton .scrollv .scrollh .canvas
+//   .raster .input .viewport .ignore .parent
+// Synonyms auto-mapped: .textbox->input  .canvasgroup->canvas
+//                       .scrollxy->scrollv
+// .ignore drops the node from the export entirely.
 // ============================================================
 
-// ── Types ─────────────────────────────────────────────────────
+// -- Types -----------------------------------------------------
 type UIMessage =
   | { type: 'EXPORT_FRAME'; token: string }
   | { type: 'CANCEL' }
@@ -19,7 +23,9 @@ type UIMessage =
 interface BloxigNode {
   id:            string;
   name:          string;          // CLEAN name (prefixes stripped)
-  type:          string;
+  rawName:       string;          // ORIGINAL name (".textbutton Play")
+  prefixes?:     string[];        // canonical prefixes the Generator reads
+  type:          string;          // REAL Figma type -- never coerced
   x:             number;
   y:             number;
   width:         number;
@@ -35,101 +41,65 @@ interface BloxigNode {
   fontSize?:     number;
   characters?:   string;
   textAlignHorizontal?: string;
-  textAlignVertical?:   string;   // now emitted (Generator already reads it)
+  textAlignVertical?:   string;
   layoutMode?:   string;
   itemSpacing?:  number;
   paddingLeft?:  number;
   paddingRight?: number;
   paddingTop?:   number;
   paddingBottom?:number;
-
-  // ── Prefix-driven intent (consumed by Generator.lua) ─────────
-  componentType?:     string;     // "BUTTON" → TextButton
-  overflowDirection?: string;     // "VERTICAL" | "HORIZONTAL" | "BOTH" → ScrollingFrame
-  isInputField?:      boolean;    // → TextBox
-  is3DFrame?:         boolean;    // → ViewportFrame
-  // ── Tags carried through for later steps (images / states) ───
-  state?:             string;     // HOVER | PRESSED | TOGGLED | DISABLED
-  isRaster?:          boolean;    // → bake to PNG (Step 3)
-  isParentHost?:      boolean;    // → this child hosts its siblings (Step 3/4)
-  isGrayscale?:       boolean;    // → grayscale PNG (Step 3)
-
   children:      BloxigNode[];
 }
 
-// ── Prefix tables ─────────────────────────────────────────────
-type Role =
-  | 'TEXTBUTTON' | 'IMAGEBUTTON' | 'TEXTBOX'
-  | 'SCROLLV' | 'SCROLLH' | 'SCROLLXY'
-  | 'VIEWPORT' | 'CANVAS'
-  | 'FRAME' | 'TEXTLABEL' | 'IMAGELABEL';
-
-const ROLE_PREFIXES: { [k: string]: Role } = {
-  textbutton:  'TEXTBUTTON',
-  imagebutton: 'IMAGEBUTTON',
-  textbox:     'TEXTBOX',
-  scrollv:     'SCROLLV',
-  scrollh:     'SCROLLH',
-  scrollxy:    'SCROLLXY',
-  viewport:    'VIEWPORT',
-  canvas:      'CANVAS',
-  canvasgroup: 'CANVAS',
-  frame:       'FRAME',
-  textlabel:   'TEXTLABEL',
-  imagelabel:  'IMAGELABEL',
-  imageframe:  'IMAGELABEL', // alias
-};
-
-const STATE_PREFIXES: { [k: string]: string } = {
-  hover:    'HOVER',
-  pressed:  'PRESSED',
-  clicked:  'PRESSED',
-  toggled:  'TOGGLED',
-  disabled: 'DISABLED',
+// -- Prefix vocabulary (canonical = what Generator understands) -
+const PREFIX_SYNONYMS: { [k: string]: string } = {
+  textbutton:  'textbutton',
+  imagebutton: 'imagebutton',
+  scrollv:     'scrollv',
+  scrollh:     'scrollh',
+  scrollxy:    'scrollv',   // Generator has no BOTH -> vertical
+  canvas:      'canvas',
+  canvasgroup: 'canvas',
+  raster:      'raster',
+  input:       'input',
+  textbox:     'input',     // synonym
+  viewport:    'viewport',
+  parent:      'parent'
 };
 
 interface ParsedName {
-  cleanName:    string;
-  role:         Role | null;
-  state:        string | null;
-  isRaster:     boolean;
-  isParentHost: boolean;
-  isIgnored:    boolean;
-  isGrayscale:  boolean;
-  isLocked:     boolean;
+  cleanName: string;
+  prefixes:  string[];      // canonical, deduped
+  isIgnored: boolean;
+  rawName:   string;
 }
 
-// ── parseLayerName ────────────────────────────────────────────
-// "  .imagebutton .raster Close X " → { role: IMAGEBUTTON, isRaster, cleanName: "Close X" }
-// Prefixes are leading dot-tokens; the text after the LAST prefix
-// becomes the Roblox-facing name.
+// -- parseLayerName --------------------------------------------
+// "  .imagebutton .raster Close X "
+//   -> { prefixes:[imagebutton,raster], cleanName:"Close X", isIgnored:false }
+// Leading dot-tokens are prefixes; text after the last one is the name.
 function parseLayerName(raw: string): ParsedName {
   const out: ParsedName = {
-    cleanName: '', role: null, state: null,
-    isRaster: false, isParentHost: false, isIgnored: false,
-    isGrayscale: false, isLocked: false
+    cleanName: 'Element', prefixes: [], isIgnored: false, rawName: raw || ''
   };
-
-  if (!raw || raw.trim().length === 0) {
-    out.cleanName = 'Element';
-    return out;
-  }
+  if (!raw || raw.trim().length === 0) return out;
 
   const tokens = raw.trim().split(/\s+/);
+  const seen: { [k: string]: boolean } = {};
   let i = 0;
   for (; i < tokens.length; i++) {
     const tok = tokens[i];
-    if (tok.charAt(0) !== '.') break;          // first non-dot token → name starts here
+    if (tok.charAt(0) !== '.') break;          // first non-dot token = name start
     const key = tok.slice(1).toLowerCase();
 
-    if (ROLE_PREFIXES[key])       out.role  = ROLE_PREFIXES[key];
-    else if (STATE_PREFIXES[key]) out.state = STATE_PREFIXES[key];
-    else if (key === 'raster')    out.isRaster     = true;
-    else if (key === 'parent')    out.isParentHost = true;
-    else if (key === 'ignore')    out.isIgnored    = true;
-    else if (key === 'gray' || key === 'grayscale') out.isGrayscale = true;
-    else if (key === 'lock')      out.isLocked     = true;
-    // unknown .token → just skip it, keep scanning prefixes
+    if (key === 'ignore') { out.isIgnored = true; continue; }
+
+    const canon = PREFIX_SYNONYMS[key];
+    if (canon && !seen[canon]) {
+      out.prefixes.push(canon);
+      seen[canon] = true;
+    }
+    // unknown .token (e.g. .hover, .frame, .textlabel) -> skipped on purpose
   }
 
   const name = tokens.slice(i).join(' ').trim();
@@ -137,7 +107,7 @@ function parseLayerName(raw: string): ParsedName {
   return out;
 }
 
-// ── Show UI ───────────────────────────────────────────────────
+// -- Show UI ---------------------------------------------------
 figma.showUI(__html__, {
   width:       380,
   height:      520,
@@ -145,7 +115,7 @@ figma.showUI(__html__, {
   themeColors: true
 });
 
-// ── Helper: build selection payload ──────────────────────────
+// -- Helper: build selection payload ---------------------------
 function getSelectionPayload() {
   const sel = figma.currentPage.selection;
   const first = sel[0];
@@ -167,7 +137,7 @@ function getSelectionPayload() {
   };
 }
 
-// ── Send initial state to UI ──────────────────────────────────
+// -- Send initial state to UI ----------------------------------
 function sendInitialContext() {
   const user = figma.currentUser;
   const sel  = getSelectionPayload();
@@ -197,7 +167,7 @@ figma.on('currentpagechange', () => {
   sendInitialContext();
 });
 
-// ── Message validation ────────────────────────────────────────
+// -- Message validation ----------------------------------------
 function validateMessage(msg: unknown): UIMessage | null {
   if (!msg || typeof msg !== 'object') return null;
   const m = msg as Record<string, unknown>;
@@ -220,7 +190,7 @@ function validateMessage(msg: unknown): UIMessage | null {
   return null;
 }
 
-// ── Message handler ───────────────────────────────────────────
+// -- Message handler -------------------------------------------
 figma.ui.onmessage = async (rawMsg: unknown) => {
   const msg = validateMessage(rawMsg);
   if (!msg) return;
@@ -241,7 +211,7 @@ figma.ui.onmessage = async (rawMsg: unknown) => {
   }
 };
 
-// ── Export handler ────────────────────────────────────────────
+// -- Export handler --------------------------------------------
 async function handleExport(token: string) {
   const selection = figma.currentPage.selection;
 
@@ -291,15 +261,16 @@ async function handleExport(token: string) {
 
   const frameW = 'width'  in node ? (node as FrameNode).width  : 100;
   const frameH = 'height' in node ? (node as FrameNode).height : 100;
+  const frameName = parseLayerName(node.name).cleanName;
 
   const payload = {
-    version:      '1.2.0',
+    version:      '1.3.0',
     exportedAt:   new Date().toISOString(),
     figmaFileKey: figma.fileKey ?? 'local',
     figmaFileId:  figma.fileKey ?? 'local',
     frame: {
       id:     node.id,
-      name:   node.name,
+      name:   frameName,
       width:  frameW,
       height: frameH
     },
@@ -317,7 +288,7 @@ async function handleExport(token: string) {
         'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({
-        name:             node.name,
+        name:             frameName,
         figma_file_id:    figma.fileKey ?? 'local',
         json_layout_data: payload
       })
@@ -335,7 +306,7 @@ async function handleExport(token: string) {
     const result = await response.json();
     figma.ui.postMessage({
       type:      'SUCCESS',
-      message:   `"${node.name}" exported successfully!`,
+      message:   `"${frameName}" exported successfully!`,
       projectId: result.project_id
     });
 
@@ -347,7 +318,7 @@ async function handleExport(token: string) {
   }
 }
 
-// ── Font loader ───────────────────────────────────────────────
+// -- Font loader -----------------------------------------------
 async function loadAllFonts(node: SceneNode): Promise<void> {
   const textNodes: TextNode[] = [];
   collectTextNodes(node, textNodes);
@@ -377,62 +348,19 @@ function collectTextNodes(node: SceneNode, result: TextNode[]): void {
   }
 }
 
-// ── Apply parsed role → Generator-understood fields ───────────
-function applyRole(base: BloxigNode, parsed: ParsedName): void {
-  switch (parsed.role) {
-    case 'TEXTBUTTON':
-      base.type = 'COMPONENT';
-      base.componentType = 'BUTTON';
-      break;
-    case 'IMAGEBUTTON':
-      base.type = 'IMAGE_BUTTON';
-      break;
-    case 'TEXTBOX':
-      base.isInputField = true;
-      break;
-    case 'SCROLLV':
-      base.type = 'FRAME';
-      base.overflowDirection = 'VERTICAL';
-      break;
-    case 'SCROLLH':
-      base.type = 'FRAME';
-      base.overflowDirection = 'HORIZONTAL';
-      break;
-    case 'SCROLLXY':
-      base.type = 'FRAME';
-      base.overflowDirection = 'BOTH';
-      break;
-    case 'VIEWPORT':
-      base.is3DFrame = true;
-      break;
-    case 'TEXTLABEL':
-      base.type = 'TEXT';
-      break;
-    case 'IMAGELABEL':
-      base.type = 'IMAGE';
-      break;
-    case 'FRAME':
-      base.type = 'FRAME';
-      break;
-    // CANVAS is handled by Generator only when GROUP + opacity<1;
-    // a dedicated forceCanvas branch comes with the Step 2 Generator patch.
-    default:
-      break;
-  }
-}
-
-// ── Node serialiser ───────────────────────────────────────────
+// -- Node serialiser -------------------------------------------
 // Returns null when the node is tagged .ignore (so it is skipped).
 function serialiseNode(node: SceneNode): BloxigNode | null {
   const parsed = parseLayerName(node.name);
-  if (parsed.isIgnored) return null;            // .ignore → drop entirely
+  if (parsed.isIgnored) return null;            // .ignore -> drop entirely
 
   const n = node as any;
 
   const base: BloxigNode = {
     id:           node.id,
-    name:         parsed.cleanName,             // prefixes stripped
-    type:         node.type,
+    name:         parsed.cleanName,             // clean Roblox-facing name
+    rawName:      parsed.rawName,               // original, for Generator fallback
+    type:         node.type,                    // REAL Figma type (not coerced)
     x:            n.x            ?? 0,
     y:            n.y            ?? 0,
     width:        n.width        ?? 0,
@@ -446,11 +374,10 @@ function serialiseNode(node: SceneNode): BloxigNode | null {
     children:     []
   };
 
-  // Carry tags through (used by later image/state steps)
-  if (parsed.state)        base.state        = parsed.state;
-  if (parsed.isRaster)     base.isRaster     = true;
-  if (parsed.isParentHost) base.isParentHost = true;
-  if (parsed.isGrayscale)  base.isGrayscale  = true;
+  // The whole point of v1.3: hand the Generator a clean prefixes array.
+  if (parsed.prefixes.length > 0) {
+    base.prefixes = parsed.prefixes;
+  }
 
   // Corner radius
   if (n.cornerRadius !== undefined && n.cornerRadius !== figma.mixed) {
@@ -476,9 +403,6 @@ function serialiseNode(node: SceneNode): BloxigNode | null {
     if (t.textAlignHorizontal)       base.textAlignHorizontal = t.textAlignHorizontal;
     if (t.textAlignVertical)         base.textAlignVertical   = t.textAlignVertical;
   }
-
-  // Apply prefix role AFTER the raw type is set, so it can override it
-  applyRole(base, parsed);
 
   // Recurse children (skip invisible + skip .ignore via null filtering)
   if ('children' in node) {

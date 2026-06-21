@@ -158,11 +158,26 @@ app.get('/privacy', (req, res) => {
 });
 
 // ── Checkout (Lemon Squeezy) ──────────────────────────────────
+// Builds a checkout URL with the buyer's email + user_id attached, so the
+// webhook can match the payment back to this account. Requires login.
+function buildCheckout(baseUrl, user) {
+  if (!baseUrl) return '/#pricing';
+  const sep = baseUrl.includes('?') ? '&' : '?';
+  const params = new URLSearchParams();
+  if (user) {
+    params.set('checkout[email]', user.email);
+    params.set('checkout[custom][user_id]', String(user._id));
+  }
+  return baseUrl + sep + params.toString();
+}
+
 app.get('/checkout/pro', (req, res) => {
-  res.redirect('https://bloxig.lemonsqueezy.com/checkout/pro');
+  if (!req.user) { req.session.returnTo = '/checkout/pro'; return res.redirect('/auth/login'); }
+  return res.redirect(buildCheckout(process.env.LEMON_CHECKOUT_PRO, req.user));
 });
 app.get('/checkout/lifetime', (req, res) => {
-  res.redirect('https://bloxig.lemonsqueezy.com/checkout/lifetime');
+  if (!req.user) { req.session.returnTo = '/checkout/lifetime'; return res.redirect('/auth/login'); }
+  return res.redirect(buildCheckout(process.env.LEMON_CHECKOUT_LIFETIME, req.user));
 });
 
 // ── 404 Handler ───────────────────────────────────────────────

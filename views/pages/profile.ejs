@@ -271,6 +271,8 @@
           </div>
           <% if (user.subscription_status === 'Free') { %>
             <a href="/#pricing" class="btn btn--accent">Upgrade</a>
+          <% } else if (user.subscription_status === 'Pro' && user.lemon_portal_url) { %>
+            <a href="<%= user.lemon_portal_url %>" target="_blank" rel="noopener" class="btn btn--ghost">Manage subscription</a>
           <% } %>
         </div>
       </div>

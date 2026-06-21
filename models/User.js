@@ -75,6 +75,16 @@ const UserSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  // Lemon Squeezy customer portal URL (pause/cancel/card/invoices)
+  lemon_portal_url: {
+    type: String,
+    default: null
+  },
+  // When a cancelled subscription will actually end (grace period)
+  subscription_ends_at: {
+    type: Date,
+    default: null
+  },
 
   // ── Security ───────────────────────────────────────────────
   lastLogin: {
@@ -95,8 +105,6 @@ const UserSchema = new mongoose.Schema({
     type: String,
     default: null
   },
-  // When the current paid plan expires (null = never, e.g. Lifetime or Free).
-  // Set by time-limited vouchers; checked on every request in deserializeUser.
   proExpiresAt: {
     type: Date,
     default: null

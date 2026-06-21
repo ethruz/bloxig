@@ -225,7 +225,7 @@
             </li>
           <% }) %>
         </ul>
-        <a href="/auth/signup" class="btn btn--accent btn--full" style="height:42px;">Start free trial</a>
+        <a href="<%= user ? '/checkout/pro' : '/auth/signup' %>" class="btn btn--accent btn--full" style="height:42px;"><%= user ? 'Upgrade to Pro' : 'Start free trial' %></a>
       </div>
 
       <!-- PRO PLUS LIFETIME -->
@@ -246,7 +246,7 @@
             </li>
           <% }) %>
         </ul>
-        <a href="/auth/signup" class="btn btn--gold btn--full" style="height:42px;">Get lifetime access</a>
+        <a href="<%= user ? '/checkout/lifetime' : '/auth/signup' %>" class="btn btn--gold btn--full" style="height:42px;">Get lifetime access</a>
       </div>
 
     </div>

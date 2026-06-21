@@ -122,19 +122,25 @@ router.post('/avatar', isAuthenticated, async (req, res) => {
 router.post('/username', isAuthenticated, async (req, res) => {
   const raw = (req.body.username || '').trim().toLowerCase().replace(/^@/, '');
 
-  const fail = (msg) => {
-    req.flash('error', msg);
-    return res.redirect('/profile/account');
-  };
+  // Render the account tab directly with an inline username message
+  // (avoids relying on flash surviving a redirect).
+  const render = (msg, ok) => res.render('pages/profile', {
+    title:       'Profile',
+    tab:         'account',
+    error:       null,
+    success:     null,
+    countries:   COUNTRIES,
+    avatarPresets: AVATAR_PRESETS,
+    usernameMsg: msg,
+    usernameOk:  !!ok
+  });
 
-  if (!raw) return fail('Username cannot be empty.');
+  if (!raw) return render('Username cannot be empty.', false);
   if (!USERNAME_REGEX.test(raw)) {
-    return fail('Username must be 3–20 characters: lowercase letters, numbers, or underscore only.');
+    return render('Username must be 3–20 characters: lowercase letters, numbers, or underscore only.', false);
   }
-
-  // No change? Nothing to do.
   if (raw === req.user.username) {
-    return fail('That is already your username.');
+    return render('That is already your username.', false);
   }
 
   // Cooldown check
@@ -143,29 +149,29 @@ router.post('/username', isAuthenticated, async (req, res) => {
     const daysSince = (Date.now() - new Date(last).getTime()) / (1000 * 60 * 60 * 24);
     if (daysSince < USERNAME_COOLDOWN_DAYS) {
       const left = Math.ceil(USERNAME_COOLDOWN_DAYS - daysSince);
-      return fail(`You can change your username again in ${left} day${left === 1 ? '' : 's'}.`);
+      return render(`You can change your username again in ${left} day${left === 1 ? '' : 's'}.`, false);
     }
   }
 
   try {
-    // Uniqueness check
     const taken = await User.findOne({ username: raw });
     if (taken && taken._id.toString() !== req.user._id.toString()) {
-      return fail('That username is already taken.');
+      return render('That username is already taken.', false);
     }
 
     await User.findByIdAndUpdate(req.user._id, {
       username: raw,
       usernameChangedAt: new Date()
     });
+    // Refresh req.user so the page shows the new username immediately
+    req.user.username = raw;
+    req.user.usernameChangedAt = new Date();
 
-    req.flash('success', 'Username updated.');
-    res.redirect('/profile/account');
+    return render('Username updated.', true);
   } catch (err) {
     console.error('[Profile] Username error:', err);
-    // Duplicate-key race condition
-    if (err.code === 11000) return fail('That username is already taken.');
-    return fail('Failed to update username. Try again.');
+    if (err.code === 11000) return render('That username is already taken.', false);
+    return render('Failed to update username. Try again.', false);
   }
 });
 

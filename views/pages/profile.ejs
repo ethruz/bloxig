@@ -119,6 +119,9 @@
           <button type="submit" class="btn btn--ghost" style="white-space:nowrap;">Save</button>
         </div>
         <p class="form-hint">3–20 characters · lowercase, numbers, underscore · changeable once every 30 days.</p>
+        <% if (typeof usernameMsg !== 'undefined' && usernameMsg) { %>
+          <p style="font-size:var(--text-xs);margin-top:4px;color:<%= usernameOk ? 'var(--success)' : 'var(--danger)' %>;"><%= usernameMsg %></p>
+        <% } %>
       </form>
 
       <!-- Name + country + bio (one form) -->
@@ -169,10 +172,6 @@
           <p style="font-size:var(--text-sm);color:var(--text-secondary);">
             <%= new Date(user.createdAt).toLocaleDateString('en-US',{month:'long',year:'numeric'}) %>
           </p>
-        </div>
-        <div>
-          <p style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px;">Total logins</p>
-          <p style="font-size:var(--text-sm);color:var(--text-secondary);"><%= user.loginCount || 1 %></p>
         </div>
         <% if (user.lastLogin) { %>
         <div>

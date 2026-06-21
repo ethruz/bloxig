@@ -28,6 +28,21 @@ module.exports = (passport) => {
   passport.deserializeUser(async (id, done) => {
     try {
       const user = await User.findById(id);
+
+      // ── Auto-expire time-limited paid plans ──────────────────
+      // If a Pro plan has a proExpiresAt in the past, downgrade to Free.
+      // Lifetime plans have proExpiresAt = null, so they never expire here.
+      if (
+        user &&
+        user.subscription_status === 'Pro' &&
+        user.proExpiresAt &&
+        new Date(user.proExpiresAt).getTime() < Date.now()
+      ) {
+        user.subscription_status = 'Free';
+        user.proExpiresAt = null;
+        await user.save();
+      }
+
       done(null, user);
     } catch (err) {
       done(err);

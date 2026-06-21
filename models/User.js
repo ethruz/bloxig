@@ -94,6 +94,12 @@ const UserSchema = new mongoose.Schema({
   voucherUsed: {
     type: String,
     default: null
+  },
+  // When the current paid plan expires (null = never, e.g. Lifetime or Free).
+  // Set by time-limited vouchers; checked on every request in deserializeUser.
+  proExpiresAt: {
+    type: Date,
+    default: null
   }
 
 }, { timestamps: true });

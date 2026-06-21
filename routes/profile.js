@@ -11,9 +11,10 @@ const { COUNTRIES } = require('./auth');
 
 // ── Voucher codes (hardcoded for now — move to DB later) ───────
 const VALID_VOUCHERS = {
-  'BLOXIG2026':  { plan: 'Pro',      discount: '1 month free' },
-  'BCALAUNCH':   { plan: 'Pro',      discount: '3 months free' },
-  'LIFETIME50':  { plan: 'Lifetime', discount: '$50 off' },
+  // durationDays: how long a Pro plan lasts. null = no expiry (Lifetime).
+  'BLOXIG2026':  { plan: 'Pro',      discount: '1 month free',  durationDays: 30 },
+  'BCALAUNCH':   { plan: 'Pro',      discount: '3 months free', durationDays: 90 },
+  'LIFETIME50':  { plan: 'Lifetime', discount: '$50 off',       durationDays: null },
 };
 
 // ── Avatar picker presets (must match the grid in profile.ejs) ─
@@ -235,12 +236,17 @@ router.post('/voucher', isAuthenticated, async (req, res) => {
   }
 
   try {
-    const update = {
-      voucherUsed: code,
-      ...(voucher.plan === 'Lifetime' ? { subscription_status: 'Lifetime' } : {}),
-      ...(voucher.plan === 'Pro' && req.user.subscription_status === 'Free'
-        ? { subscription_status: 'Pro' } : {})
-    };
+    const update = { voucherUsed: code };
+
+    if (voucher.plan === 'Lifetime') {
+      update.subscription_status = 'Lifetime';
+      update.proExpiresAt = null;            // never expires
+    } else if (voucher.plan === 'Pro' && req.user.subscription_status === 'Free') {
+      update.subscription_status = 'Pro';
+      update.proExpiresAt = voucher.durationDays
+        ? new Date(Date.now() + voucher.durationDays * 24 * 60 * 60 * 1000)
+        : null;
+    }
 
     await User.findByIdAndUpdate(req.user._id, update);
     req.flash('success', `Voucher applied! ${voucher.discount} — enjoy ${voucher.plan}.`);

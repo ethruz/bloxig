@@ -64,25 +64,37 @@
 
       <h2 style="font-size:var(--text-lg);letter-spacing:-0.02em;margin-bottom:4px;">Account details</h2>
 
-      <!-- Avatar picker -->
+      <!-- Avatar picker (grid hidden until "Change avatar" is clicked) -->
       <div class="form-field">
         <label class="form-label">Avatar</label>
-        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;max-width:420px;">
+        <div style="display:flex;align-items:center;gap:14px;">
+          <!-- Current avatar preview -->
+          <div style="width:56px;height:56px;border-radius:50%;flex-shrink:0;overflow:hidden;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;font-weight:600;">
+            <% if (user.avatarUrl) { %>
+              <img src="<%= user.avatarUrl %>" alt="Your avatar" style="width:100%;height:100%;object-fit:cover;display:block;" />
+            <% } else { %>
+              <%= user.firstName ? user.firstName[0].toUpperCase() : 'U' %><%= user.lastName ? user.lastName[0].toUpperCase() : '' %>
+            <% } %>
+          </div>
+          <button type="button" id="changeAvatarBtn" class="btn btn--ghost" style="height:34px;">Change avatar</button>
+        </div>
+
+        <!-- The grid, hidden by default -->
+        <div id="avatarGrid" style="display:none;grid-template-columns:repeat(6,1fr);gap:10px;max-width:420px;margin-top:14px;">
           <% avatarPresets.forEach(function(preset) {
                var p = preset.split(':');
                var url = 'https://api.dicebear.com/9.x/' + p[0] + '/svg?seed=' + p[1] + '&backgroundColor=' + p[2];
                var selected = (user.avatar === preset);
           %>
             <button type="button" class="avatar-opt" data-avatar="<%= preset %>"
-              style="padding:0;border:2px solid <%= selected ? 'var(--accent)' : 'transparent' %>;border-radius:50%;background:none;cursor:pointer;transition:border-color 150ms;line-height:0;">
-              <img src="<%= url %>" alt="Avatar option" style="width:48px;height:48px;border-radius:50%;display:block;" />
+              style="padding:0;border:2px solid <%= selected ? 'var(--accent)' : 'transparent' %>;border-radius:50%;background:#<%= p[2] %>;cursor:pointer;transition:border-color 150ms;line-height:0;width:48px;height:48px;overflow:hidden;">
+              <img src="<%= url %>" alt="Avatar option" loading="lazy" style="width:48px;height:48px;border-radius:50%;display:block;" />
             </button>
           <% }) %>
         </div>
         <form id="avatarForm" action="/profile/avatar" method="POST">
           <input type="hidden" name="avatar" id="avatarInput" value="<%= user.avatar || '' %>" />
         </form>
-        <p class="form-hint" style="margin-top:8px;">Click an avatar to set it instantly.</p>
       </div>
 
       <!-- Name + country + bio (one form) -->
@@ -386,7 +398,17 @@
 </div>
 
 <script>
-// Avatar picker — click to save instantly
+// Avatar: toggle the grid open/closed
+var changeBtn = document.getElementById('changeAvatarBtn');
+var grid      = document.getElementById('avatarGrid');
+if (changeBtn && grid) {
+  changeBtn.addEventListener('click', function(){
+    var open = grid.style.display === 'grid';
+    grid.style.display = open ? 'none' : 'grid';
+    changeBtn.textContent = open ? 'Change avatar' : 'Close';
+  });
+}
+// Avatar: click an option to save instantly
 document.querySelectorAll('.avatar-opt').forEach(function(btn){
   btn.addEventListener('click', function(){
     var input = document.getElementById('avatarInput');

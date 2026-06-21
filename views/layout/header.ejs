@@ -75,6 +75,13 @@
       color: #fff;
       flex-shrink: 0;
       letter-spacing: 0.02em;
+      overflow: hidden;
+    }
+    /* Avatar image fills the circle when one is chosen */
+    .avatar-circle img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
     }
 
     .profile-name {
@@ -198,7 +205,13 @@
         <!-- Profile dropdown -->
         <div class="profile-menu" id="profileMenu">
           <button class="profile-trigger" id="profileTrigger" aria-expanded="false" aria-haspopup="true">
-            <div class="avatar-circle"><%= user.initials || (user.firstName ? user.firstName[0].toUpperCase() : 'U') %></div>
+            <div class="avatar-circle">
+              <% if (user.avatarUrl) { %>
+                <img src="<%= user.avatarUrl %>" alt="Avatar" />
+              <% } else { %>
+                <%= user.initials || (user.firstName ? user.firstName[0].toUpperCase() : 'U') %>
+              <% } %>
+            </div>
             <span class="profile-name"><%= user.firstName || user.email.split('@')[0] %></span>
             <span class="profile-chevron">▾</span>
           </button>
@@ -236,8 +249,13 @@
               Developer / API
             </a>
 
+            <div class="dropdown-divider"></div>
+            <a href="/profile/billing#voucher" class="dropdown-item" role="menuitem">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 4.5A1.5 1.5 0 013.5 3h7A1.5 1.5 0 0112 4.5v1a1.25 1.25 0 000 2.5v1A1.5 1.5 0 0110.5 11h-7A1.5 1.5 0 012 9.5v-1a1.25 1.25 0 000-2.5v-1z" stroke="currentColor" stroke-width="1.1"/><path d="M7 4v6" stroke="currentColor" stroke-width="1.1" stroke-dasharray="1.2 1.2"/></svg>
+              Redeem code
+            </a>
+
             <% if (user.subscription_status === 'Free') { %>
-              <div class="dropdown-divider"></div>
               <a href="/#pricing" class="dropdown-item" style="color:var(--accent);" role="menuitem">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1l1.8 3.6L13 5.3l-3 2.9.7 4.1L7 10.4l-3.7 1.9.7-4.1-3-2.9 4.2-.7L7 1z" fill="currentColor"/></svg>
                 Upgrade to Pro

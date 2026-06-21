@@ -43,6 +43,15 @@ router.get('/', isAuthenticated, (req, res) => {
   });
 });
 
+// ── GET /profile/redeem — Standalone voucher page (not a tab) ──
+router.get('/redeem', isAuthenticated, (req, res) => {
+  res.render('pages/redeem', {
+    title:   'Redeem code',
+    error:   req.flash('error')[0]   || null,
+    success: req.flash('success')[0] || null
+  });
+});
+
 // ── GET /profile/:tab ─────────────────────────────────────────
 router.get('/:tab', isAuthenticated, (req, res) => {
   const validTabs = ['account', 'security', 'billing', 'developer'];
@@ -205,18 +214,18 @@ router.post('/voucher', isAuthenticated, async (req, res) => {
 
   if (!code) {
     req.flash('error', 'Please enter a voucher code.');
-    return res.redirect('/profile/billing');
+    return res.redirect('/profile/redeem');
   }
 
   if (req.user.voucherUsed) {
     req.flash('error', 'You have already redeemed a voucher on this account.');
-    return res.redirect('/profile/billing');
+    return res.redirect('/profile/redeem');
   }
 
   const voucher = VALID_VOUCHERS[code];
   if (!voucher) {
     req.flash('error', 'Invalid or expired voucher code.');
-    return res.redirect('/profile/billing');
+    return res.redirect('/profile/redeem');
   }
 
   try {
@@ -229,10 +238,10 @@ router.post('/voucher', isAuthenticated, async (req, res) => {
 
     await User.findByIdAndUpdate(req.user._id, update);
     req.flash('success', `Voucher applied! ${voucher.discount} — enjoy ${voucher.plan}.`);
-    res.redirect('/profile/billing');
+    res.redirect('/profile/redeem');
   } catch (err) {
     req.flash('error', 'Failed to apply voucher. Try again.');
-    res.redirect('/profile/billing');
+    res.redirect('/profile/redeem');
   }
 });
 

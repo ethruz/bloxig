@@ -97,6 +97,30 @@
         </form>
       </div>
 
+      <!-- Email (display only — cannot be changed, not part of any form) -->
+      <div class="form-field">
+        <label class="form-label">Email</label>
+        <input class="form-input" type="email" value="<%= user.email %>" disabled
+          style="opacity:0.5;cursor:not-allowed;" />
+        <p class="form-hint">Email cannot be changed.</p>
+      </div>
+
+      <!-- Username (separate form — once every 30 days) — directly below email -->
+      <form action="/profile/username" method="POST" style="display:flex;flex-direction:column;gap:6px;">
+        <label class="form-label">Username</label>
+        <div style="display:flex;gap:8px;">
+          <div style="position:relative;flex:1;">
+            <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--text-tertiary);font-size:var(--text-sm);">@</span>
+            <input class="form-input" type="text" name="username"
+              value="<%= user.username || user.email.split('@')[0] %>"
+              pattern="[a-z0-9_]{3,20}" maxlength="20"
+              style="width:100%;padding-left:26px;" />
+          </div>
+          <button type="submit" class="btn btn--ghost" style="white-space:nowrap;">Save</button>
+        </div>
+        <p class="form-hint">3–20 characters · lowercase, numbers, underscore · changeable once every 30 days.</p>
+      </form>
+
       <!-- Name + country + bio (one form) -->
       <form action="/profile/update" method="POST" style="display:flex;flex-direction:column;gap:20px;">
 
@@ -111,13 +135,6 @@
             <input class="form-input" type="text" name="lastName"
               value="<%= user.lastName || '' %>" maxlength="50" required />
           </div>
-        </div>
-
-        <div class="form-field">
-          <label class="form-label">Email</label>
-          <input class="form-input" type="email" value="<%= user.email %>" disabled
-            style="opacity:0.5;cursor:not-allowed;" />
-          <p class="form-hint">Email cannot be changed.</p>
         </div>
 
         <div class="form-field">
@@ -143,21 +160,7 @@
         </button>
       </form>
 
-      <!-- Username (separate form — once every 30 days) -->
-      <form action="/profile/username" method="POST" style="display:flex;flex-direction:column;gap:6px;">
-        <label class="form-label">Username</label>
-        <div style="display:flex;gap:8px;">
-          <div style="position:relative;flex:1;">
-            <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--text-tertiary);font-size:var(--text-sm);">@</span>
-            <input class="form-input" type="text" name="username"
-              value="<%= user.username || user.email.split('@')[0] %>"
-              pattern="[a-z0-9_]{3,20}" maxlength="20"
-              style="width:100%;padding-left:26px;" />
-          </div>
-          <button type="submit" class="btn btn--ghost" style="white-space:nowrap;">Save</button>
-        </div>
-        <p class="form-hint">3–20 characters · lowercase, numbers, underscore · changeable once every 30 days.</p>
-      </form>
+
 
       <!-- Member info -->
       <div style="background:var(--bg-elevated);border:1px solid var(--border-faint);border-radius:var(--r-md);padding:14px 16px;display:flex;gap:24px;flex-wrap:wrap;">
@@ -259,29 +262,6 @@
             <a href="/#pricing" class="btn btn--accent">Upgrade</a>
           <% } %>
         </div>
-      </div>
-
-      <!-- Voucher section -->
-      <div>
-        <h3 style="font-size:var(--text-base);font-weight:500;letter-spacing:-0.01em;margin-bottom:4px;">Redeem voucher</h3>
-        <p style="font-size:var(--text-sm);color:var(--text-secondary);margin-bottom:16px;">
-          Have a promo code? Enter it below to unlock your plan.
-        </p>
-
-        <% if (user.voucherUsed) { %>
-          <div style="background:rgba(61,214,140,0.06);border:1px solid rgba(61,214,140,0.2);border-radius:var(--r-md);padding:12px 16px;font-size:var(--text-sm);color:var(--success);">
-            Voucher already redeemed: <code><%= user.voucherUsed %></code>
-          </div>
-        <% } else { %>
-          <form action="/profile/voucher" method="POST" style="display:flex;gap:8px;">
-            <input class="form-input" type="text" name="voucherCode"
-              placeholder="e.g. BLOXIG2026" maxlength="30"
-              style="text-transform:uppercase;letter-spacing:0.05em;flex:1;" />
-            <button type="submit" class="btn btn--ghost" style="white-space:nowrap;">
-              Redeem
-            </button>
-          </form>
-        <% } %>
       </div>
 
       <!-- Pricing reminder -->

@@ -176,7 +176,7 @@ router.post('/signup', async (req, res) => {
         req.flash('error', 'Account created! Please sign in.');
         return res.redirect('/auth/login');
       }
-      req.flash('success', `Welcome to Bloxig, ${user.firstName}! 🎉`);
+      req.flash('success', `Welcome to Bloxig, ${user.firstName}!`);
       res.redirect('/dashboard');
     });
 

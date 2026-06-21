@@ -1,11 +1,15 @@
 -- ============================================================
--- SmartMerge.lua — Bloxig v2.1 (FIXED)
+-- SmartMerge.lua — Bloxig v2.2 (Step 2: nesting + uniform scale)
 --
--- FIX 1: frameW/frameH passed to ALL ScaleConverter calls
---         so edit-mode positions/sizes are correct.
--- FIX 2: lockText() called on every text element after update.
--- FIX 3: lockStroke() called on every stroked element after update.
--- FIX 4: apply() double-call bug fixed — stats captured in pcall.
+-- STEP 2 CHANGES vs v2.1:
+--   * Children now scale against their IMMEDIATE PARENT's Figma
+--     pixel size (parentW/parentH), not the root frame size.
+--     This fixes nested elements collapsing toward the top-left.
+--   * Root frame is now a centered, aspect-ratio-locked container
+--     (UIAspectRatioConstraint) that scales the whole design
+--     uniformly to fit any screen WITHOUT stretching.
+--   * Frame size is read automatically from payload.frame.
+--   * lockText / lockStroke still use ROOT dims (kept consistent).
 -- ============================================================
 
 local ScaleConverter = require(script.Parent.ScaleConverter)
@@ -43,17 +47,37 @@ local function collectJSONIds(nodes, result)
 	return result
 end
 
--- ── Update visual properties on existing instance ────────────
--- ✅ FIX 1: All ScaleConverter calls now pass frameW, frameH
--- ✅ FIX 2: lockText() called after text properties set
--- ✅ FIX 3: lockStroke() called after stroke applied
-local function updateVisualProperties(inst, node, parent, frameW, frameH)
-	frameW = frameW or 1280
-	frameH = frameH or 720
+-- ── Configure root frame for responsive uniform scaling ──────
+-- Centered + aspect-ratio locked to the Figma frame, so the whole
+-- design scales to fit the screen with NO distortion (letterboxes).
+local function configureRoot(rootFrame, frameW, frameH)
+	rootFrame.AnchorPoint            = Vector2.new(0.5, 0.5)
+	rootFrame.Position               = UDim2.fromScale(0.5, 0.5)
+	rootFrame.Size                   = UDim2.fromScale(1, 1)
+	rootFrame.BackgroundTransparency = 1
+	rootFrame:SetAttribute("Figblox_W", frameW)
+	rootFrame:SetAttribute("Figblox_H", frameH)
 
-	-- Position + Size — now uses explicit frame dims (edit mode safe)
-	inst.Position = ScaleConverter.toPosition(node.x or 0, node.y or 0, parent, frameW, frameH)
-	inst.Size     = ScaleConverter.toSize(node.width or 0, node.height or 0, parent, frameW, frameH)
+	local arc = rootFrame:FindFirstChildOfClass("UIAspectRatioConstraint")
+		or Instance.new("UIAspectRatioConstraint")
+	arc.AspectRatio  = math.max(0.01, frameW / frameH)
+	arc.AspectType   = Enum.AspectType.FitWithinMaxSize
+	arc.DominantAxis = Enum.DominantAxis.Width
+	arc.Parent       = rootFrame
+end
+
+-- ── Update visual properties on existing instance ────────────
+-- parentW/parentH = the immediate parent's Figma pixel size (pos/size)
+-- rootW/rootH     = the whole frame size (text/stroke locking)
+local function updateVisualProperties(inst, node, parent, parentW, parentH, rootW, rootH)
+	parentW = math.max(1, parentW or 1280)
+	parentH = math.max(1, parentH or 720)
+	rootW   = math.max(1, rootW or parentW)
+	rootH   = math.max(1, rootH or parentH)
+
+	-- Position + Size — scaled against the PARENT (fixes nesting)
+	inst.Position = ScaleConverter.toPosition(node.x or 0, node.y or 0, parent, parentW, parentH)
+	inst.Size     = ScaleConverter.toSize(node.width or 0, node.height or 0, parent, parentW, parentH)
 	inst.Visible  = node.visible ~= false
 
 	-- ── Background fill ───────────────────────────────────────
@@ -98,9 +122,8 @@ local function updateVisualProperties(inst, node, parent, frameW, frameH)
 				inst.TextTransparency = 1 - math.clamp(fill.color.a or 1, 0, 1)
 			end
 		end
-
-		-- ✅ FIX 2: Lock text — TextScaled=false, exact px size
-		ScaleConverter.lockText(inst, node, frameH)
+		-- Lock text — TextScaled=false, exact px size (root ref)
+		ScaleConverter.lockText(inst, node, rootH)
 	end
 
 	-- ── Image ─────────────────────────────────────────────────
@@ -132,9 +155,8 @@ local function updateVisualProperties(inst, node, parent, frameW, frameH)
 			uiStroke.Transparency = 1 - math.clamp(strokeData.color.a or 1, 0, 1)
 		end
 		uiStroke.Parent = inst
-
-		-- ✅ FIX 3: Lock stroke — scale relative to frame width
-		ScaleConverter.lockStroke(inst, node, frameW)
+		-- Lock stroke — scaled relative to ROOT frame width (consistent)
+		ScaleConverter.lockStroke(inst, node, rootW)
 	end
 
 	-- Clear orphan flag
@@ -147,19 +169,21 @@ function SmartMerge.preview(payload, container)
 	local idMap  = buildIDMap(container)
 	local result = { new = {}, changed = {}, synced = {} }
 
-	-- ✅ FIX 1: Get frame dims for accurate position comparison
-	local frameW = payload.frame and payload.frame.width  or 1280
-	local frameH = payload.frame and payload.frame.height or 720
+	local frameW = math.max(1, payload.frame and payload.frame.width  or 1280)
+	local frameH = math.max(1, payload.frame and payload.frame.height or 720)
 
-	local function scan(nodes)
+	-- refW/refH = immediate parent dims (top-level uses frame dims)
+	local function scan(nodes, refW, refH)
 		if not nodes then return end
+		refW = math.max(1, refW or frameW)
+		refH = math.max(1, refH or frameH)
 		for _, node in ipairs(nodes) do
 			if idMap[node.id] then
-				local inst      = idMap[node.id]
+				local inst         = idMap[node.id]
 				local expectedPos  = ScaleConverter.toPosition(
-					node.x or 0, node.y or 0, inst.Parent, frameW, frameH)
+					node.x or 0, node.y or 0, inst.Parent, refW, refH)
 				local expectedSize = ScaleConverter.toSize(
-					node.width or 0, node.height or 0, inst.Parent, frameW, frameH)
+					node.width or 0, node.height or 0, inst.Parent, refW, refH)
 
 				if inst.Position == expectedPos and inst.Size == expectedSize then
 					table.insert(result.synced,  { id = node.id, name = node.name })
@@ -169,68 +193,76 @@ function SmartMerge.preview(payload, container)
 			else
 				table.insert(result.new, { id = node.id, name = node.name })
 			end
-			if node.children then scan(node.children) end
+
+			if node.children then
+				scan(node.children,
+					math.max(1, node.width  or refW),
+					math.max(1, node.height or refH))
+			end
 		end
 	end
 
-	scan(payload.nodes)
+	scan(payload.nodes, frameW, frameH)
 	return result
 end
 
 -- ── Apply Smart Merge ─────────────────────────────────────────
--- ✅ FIX 4: apply() no longer called twice — stats returned once
 function SmartMerge.apply(payload, container)
 	local idMap   = buildIDMap(container)
 	local jsonIds = collectJSONIds(payload.nodes)
 	local stats   = { merged = 0, created = 0, orphaned = 0 }
 
-	-- ✅ FIX 1: Extract frame dims ONCE, pass everywhere
+	-- Auto-read frame dims ONCE (root reference)
 	local frameW = math.max(1, payload.frame and payload.frame.width  or 1280)
 	local frameH = math.max(1, payload.frame and payload.frame.height or 720)
 
-	local function processNodes(nodes, parent)
+	-- refW/refH = immediate parent's Figma pixel size at this depth.
+	local function processNodes(nodes, parent, refW, refH)
 		if not nodes then return end
+		refW = math.max(1, refW or frameW)
+		refH = math.max(1, refH or frameH)
 
 		for _, node in ipairs(nodes) do
 			local existing = idMap[node.id]
 
 			if existing then
-				-- MATCH: update visual properties only
-				updateVisualProperties(existing, node, existing.Parent, frameW, frameH)
+				-- MATCH: update visual props, scaled vs PARENT dims
+				updateVisualProperties(existing, node, existing.Parent,
+					refW, refH, frameW, frameH)
 				stats.merged = stats.merged + 1
 
 				if node.children then
-					processNodes(node.children, existing)
+					processNodes(node.children, existing,
+						math.max(1, node.width  or refW),
+						math.max(1, node.height or refH))
 				end
 			else
-				-- NO MATCH: create new element via Generator
-				node._frameWidth  = frameW
-				node._frameHeight = frameH
-				Generator.createInstance(node, parent, frameW, frameH)
+				-- NO MATCH: create via Generator, scaled vs PARENT dims.
+				-- Generator recurses into this node's children itself,
+				-- using node.width/height as the child reference.
+				Generator.createInstance(node, parent, refW, refH)
 				stats.created = stats.created + 1
 			end
 		end
 	end
 
 	-- Find or create root frame
-	local rootFrame = container:FindFirstChild(
-		payload.frame and payload.frame.name or "BloxigRoot"
-	)
+	local rootName = payload.frame and payload.frame.name or "BloxigRoot"
+	local rootFrame = container:FindFirstChild(rootName)
 
 	if not rootFrame then
 		rootFrame = Instance.new("Frame")
-		rootFrame.Name                   = payload.frame and payload.frame.name or "BloxigRoot"
-		rootFrame.Size                   = UDim2.new(1, 0, 1, 0)
-		rootFrame.Position               = UDim2.new(0, 0, 0, 0)
-		rootFrame.BackgroundTransparency = 1
+		rootFrame.Name = rootName
 		rootFrame:SetAttribute("Figblox_ID",   payload.frame and payload.frame.id or "root")
 		rootFrame:SetAttribute("Figblox_Root", true)
-		rootFrame:SetAttribute("Figblox_W",    frameW)
-		rootFrame:SetAttribute("Figblox_H",    frameH)
 		rootFrame.Parent = container
 	end
 
-	processNodes(payload.nodes, rootFrame)
+	-- Apply responsive uniform-scale setup every time (handles re-import
+	-- and frame-size changes between exports).
+	configureRoot(rootFrame, frameW, frameH)
+
+	processNodes(payload.nodes, rootFrame, frameW, frameH)
 
 	-- Flag orphans — NEVER delete, only mark
 	local function flagOrphans(inst)

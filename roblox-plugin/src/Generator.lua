@@ -25,15 +25,11 @@ local function safeDivide(n, d)
 	return n / d
 end
 
+-- Step 2: use the Figma-known parent pixel size passed in, NOT AbsoluteSize.
+-- AbsoluteSize is 0 in edit mode and reflects render size, not the Figma
+-- reference we must scale against. Explicit dims are deterministic + correct.
 local function resolveParentSize(parent, fallbackW, fallbackH)
-	local w, h = fallbackW or 1280, fallbackH or 720
-	if parent then
-		local ok, abs = pcall(function() return parent.AbsoluteSize end)
-		if ok and abs and abs.X > 0 and abs.Y > 0 then
-			return abs.X, abs.Y
-		end
-	end
-	return w, h
+	return math.max(1, fallbackW or 1280), math.max(1, fallbackH or 720)
 end
 
 local function safePosition(node, parent, fallbackW, fallbackH)
@@ -537,10 +533,12 @@ function Generator.createInstance(node, parent, frameW, frameH)
 	-- ── Recurse children ──────────────────────────────────────
 	-- .raster nodes don't have children (baked to one PNG)
 	if node.children and not (prefixes.raster or node.isRaster) then
+		-- Step 2 nesting fix: children scale against THIS node's Figma pixel
+		-- size (their immediate parent), not the root frame size.
+		local childRefW = math.max(1, node.width  or frameW)
+		local childRefH = math.max(1, node.height or frameH)
 		for _, childNode in ipairs(node.children) do
-			childNode._frameWidth  = frameW
-			childNode._frameHeight = frameH
-			Generator.createInstance(childNode, inst, frameW, frameH)
+			Generator.createInstance(childNode, inst, childRefW, childRefH)
 		end
 	end
 
@@ -590,18 +588,19 @@ function Generator.buildFromJSON(payload, container)
 	local frameW = math.max(1, payload.frame and payload.frame.width  or 1280)
 	local frameH = math.max(1, payload.frame and payload.frame.height or 720)
 
-	local rootFrame                  = Instance.new("Frame")
+--//NEW UPDATED  FRAME ////------Recent cloud
+
 	rootFrame.Name                   = (payload.frame and payload.frame.name or "BloxigRoot"):sub(1,100)
-	rootFrame.Size                   = UDim2.new(1, 0, 1, 0)
-	rootFrame.Position               = UDim2.new(0, 0, 0, 0)
+	rootFrame.AnchorPoint            = Vector2.new(0.5, 0.5)
+	rootFrame.Position               = UDim2.fromScale(0.5, 0.5)
+	rootFrame.Size                   = UDim2.fromScale(1, 1)
 	rootFrame.BackgroundTransparency = 1
 	rootFrame.ZIndex                 = 1
-	rootFrame:SetAttribute("Figblox_ID",   payload.frame and payload.frame.id or "root")
-	rootFrame:SetAttribute("Figblox_Root", true)
-	rootFrame:SetAttribute("Figblox_Ver",  Generator.VERSION)
-	rootFrame:SetAttribute("Figblox_W",    frameW)
-	rootFrame:SetAttribute("Figblox_H",    frameH)
-	rootFrame.Parent = container
+	local _arc = Instance.new("UIAspectRatioConstraint")
+	_arc.AspectRatio  = math.max(0.01, frameW / frameH)
+	_arc.AspectType   = Enum.AspectType.FitWithinMaxSize
+	_arc.DominantAxis = Enum.DominantAxis.Width
+	_arc.Parent       = rootFrame
 
 	local created = 0
 	if payload.nodes then

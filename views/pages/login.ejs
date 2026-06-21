@@ -17,14 +17,22 @@
       </div>
 
       <div class="form-field">
-        <label class="form-label" for="password">Password</label>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;">
+          <label class="form-label" for="password">Password</label>
+          <a href="/auth/forgot" style="font-size:var(--text-xs);color:var(--text-tertiary);text-decoration:none;transition:color 160ms;"
+             onmouseover="this.style.color='var(--text-secondary)'" onmouseout="this.style.color='var(--text-tertiary)'">Forgot password?</a>
+        </div>
         <div style="position:relative;">
           <input class="form-input" type="password" id="password" name="password"
             placeholder="••••••••" required autocomplete="current-password"
-            style="padding-right:44px;" />
-          <button type="button" id="togglePass"
-            style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:14px;padding:4px;">
-            👁
+            style="width:100%;padding-right:44px;" />
+          <button type="button" id="togglePass" aria-label="Show password"
+            style="position:absolute;right:8px;top:50%;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;width:28px;height:28px;background:none;border:none;cursor:pointer;color:var(--text-tertiary);padding:0;transition:color 160ms;"
+            onmouseover="this.style.color='var(--text-secondary)'" onmouseout="this.style.color='var(--text-tertiary)'">
+            <!-- eye (password hidden) -->
+            <svg id="eyeOpen" xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+            <!-- eye-off (password shown) -->
+            <svg id="eyeOff" hidden xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>
           </button>
         </div>
       </div>
@@ -44,15 +52,21 @@
 </section>
 
 <script>
-const toggleBtn = document.getElementById('togglePass');
-const passInput = document.getElementById('password');
-if (toggleBtn && passInput) {
-  toggleBtn.addEventListener('click', () => {
-    const isPass = passInput.type === 'password';
-    passInput.type = isPass ? 'text' : 'password';
-    toggleBtn.textContent = isPass ? '🙈' : '👁';
-  });
-}
+(function () {
+  var toggleBtn = document.getElementById('togglePass');
+  var passInput = document.getElementById('password');
+  var eyeOpen   = document.getElementById('eyeOpen');
+  var eyeOff    = document.getElementById('eyeOff');
+  if (toggleBtn && passInput) {
+    toggleBtn.addEventListener('click', function () {
+      var hidden = passInput.type === 'password';
+      passInput.type = hidden ? 'text' : 'password';
+      eyeOpen.hidden = hidden;       // hide open-eye when showing text
+      eyeOff.hidden  = !hidden;      // show eye-off when showing text
+      toggleBtn.setAttribute('aria-label', hidden ? 'Hide password' : 'Show password');
+    });
+  }
+})();
 </script>
 
 <%- include('../layout/footer') %>

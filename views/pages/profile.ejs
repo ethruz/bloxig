@@ -256,6 +256,18 @@
               <% if (user.subscription_status === 'Free') { %>&nbsp;<span style="font-size:var(--text-sm);color:var(--text-tertiary);font-weight:400;">— 3 projects</span><% } %>
               <% if (user.subscription_status === 'Lifetime') { %>&nbsp;<span style="font-size:var(--text-sm);color:var(--text-tertiary);font-weight:400;">— forever</span><% } %>
             </p>
+            <% if (user.subscription_status === 'Pro' && user.proExpiresAt) {
+                 var msLeft = new Date(user.proExpiresAt).getTime() - Date.now();
+                 var daysLeft = Math.max(0, Math.ceil(msLeft / (1000*60*60*24)));
+                 var expDate = new Date(user.proExpiresAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+            %>
+              <p style="font-size:var(--text-sm);color:<%= daysLeft <= 7 ? 'var(--gold)' : 'var(--text-secondary)' %>;margin-top:6px;">
+                <%= daysLeft %> day<%= daysLeft === 1 ? '' : 's' %> remaining
+                <span style="color:var(--text-tertiary);">· renews/ends <%= expDate %></span>
+              </p>
+            <% } else if (user.subscription_status === 'Pro' && !user.proExpiresAt) { %>
+              <p style="font-size:var(--text-sm);color:var(--text-secondary);margin-top:6px;">Active · no expiry</p>
+            <% } %>
           </div>
           <% if (user.subscription_status === 'Free') { %>
             <a href="/#pricing" class="btn btn--accent">Upgrade</a>

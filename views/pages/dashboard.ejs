@@ -248,29 +248,117 @@ function copyToClipboard(text, btn) {
 </script>
 
 
-<script>
-async function deleteProject(id, name) {
-  if (!confirm('Delete project "' + name + '"? This cannot be undone.')) return;
-  try {
-    const res = await fetch('/dashboard/projects/' + id + '/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
-    });
-    const data = await res.json();
-    if (res.ok && data.success) {
-      const card = document.getElementById('project-' + id);
-      if (card) {
-        card.style.transition = 'opacity 200ms';
-        card.style.opacity = '0';
-        setTimeout(function(){ card.remove(); location.reload(); }, 220);
-      }
-    } else {
-      alert(data.error || 'Failed to delete project.');
-    }
-  } catch (e) {
-    alert('Failed to delete project. Please try again.');
+<!-- Delete confirmation modal -->
+<div id="deleteModal" style="
+  position:fixed;inset:0;z-index:1000;
+  display:none;align-items:center;justify-content:center;
+  background:rgba(0,0,0,0.6);backdrop-filter:blur(2px);
+  padding:20px;
+">
+  <div style="
+    width:100%;max-width:380px;
+    background:var(--bg-elevated);
+    border:1px solid var(--border-base);
+    border-radius:var(--r-lg);
+    box-shadow:0 16px 48px rgba(0,0,0,0.5);
+    padding:24px;
+    animation:modalIn 160ms var(--ease);
+  ">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+      <div style="
+        width:36px;height:36px;flex-shrink:0;
+        border-radius:50%;
+        background:rgba(229,72,77,0.10);
+        border:1px solid rgba(229,72,77,0.25);
+        display:flex;align-items:center;justify-content:center;
+      ">
+        <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
+          <path d="M2 3.5h10M5.5 3.5V2.5a1 1 0 011-1h1a1 1 0 011 1v1M3 3.5l.5 8a1 1 0 001 1h5a1 1 0 001-1l.5-8" stroke="var(--danger)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div>
+        <h3 style="font-size:var(--text-base);font-weight:500;letter-spacing:-0.02em;color:var(--text-primary);">Delete project</h3>
+        <p style="font-size:var(--text-xs);color:var(--text-tertiary);margin-top:1px;">This action cannot be undone.</p>
+      </div>
+    </div>
+
+    <p style="font-size:var(--text-sm);color:var(--text-secondary);line-height:1.5;margin-bottom:22px;">
+      You're about to permanently delete <strong id="deleteProjectName" style="color:var(--text-primary);font-weight:500;"></strong>. Its Project ID will stop working in the Studio plugin.
+    </p>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button type="button" id="deleteCancel" class="btn btn--ghost" style="height:36px;">Cancel</button>
+      <button type="button" id="deleteConfirm" class="btn" style="height:36px;background:var(--danger);color:#fff;border-color:var(--danger);">Delete</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  @keyframes modalIn {
+    from { opacity:0; transform:translateY(8px) scale(0.98); }
+    to   { opacity:1; transform:translateY(0) scale(1); }
   }
-}
+  #deleteConfirm:hover { filter:brightness(1.08); }
+  #deleteConfirm:disabled { opacity:0.6; cursor:not-allowed; }
+</style>
+
+<script>
+(function(){
+  var modal       = document.getElementById('deleteModal');
+  var nameEl      = document.getElementById('deleteProjectName');
+  var cancelBtn   = document.getElementById('deleteCancel');
+  var confirmBtn  = document.getElementById('deleteConfirm');
+  var pendingId   = null;
+
+  // Called by each card's trash button
+  window.deleteProject = function(id, name){
+    pendingId = id;
+    nameEl.textContent = '"' + name + '"';
+    modal.style.display = 'flex';
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = 'Delete';
+  };
+
+  function closeModal(){
+    modal.style.display = 'none';
+    pendingId = null;
+  }
+
+  cancelBtn.addEventListener('click', closeModal);
+  // click outside the card closes it
+  modal.addEventListener('click', function(e){ if (e.target === modal) closeModal(); });
+  // Esc closes it
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && modal.style.display === 'flex') closeModal(); });
+
+  confirmBtn.addEventListener('click', async function(){
+    if (!pendingId) return;
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Deleting...';
+    try {
+      var res = await fetch('/dashboard/projects/' + pendingId + '/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      var data = await res.json();
+      if (res.ok && data.success) {
+        var card = document.getElementById('project-' + pendingId);
+        if (card) {
+          card.style.transition = 'opacity 200ms';
+          card.style.opacity = '0';
+        }
+        setTimeout(function(){ location.reload(); }, 220);
+      } else {
+        alert(data.error || 'Failed to delete project.');
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Delete';
+      }
+    } catch (e) {
+      alert('Failed to delete project. Please try again.');
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Delete';
+    }
+  });
+})();
 </script>
 
 <%- include('../layout/footer') %>

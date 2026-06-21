@@ -89,7 +89,7 @@
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;">
       <% projects.forEach(function(project) { %>
 
-        <div class="card card--interactive" style="display:flex;flex-direction:column;gap:16px;">
+        <div class="card card--interactive" id="project-<%= project._id %>" style="display:flex;flex-direction:column;gap:16px;">
 
           <div style="display:flex;align-items:center;gap:12px;">
             <div style="
@@ -113,6 +113,27 @@
                 Updated <%= new Date(project.updatedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) %>
               </p>
             </div>
+
+            <!-- Delete button (pushed to the right) -->
+            <button
+              onclick="deleteProject('<%= project._id %>', '<%= project.name.replace(/'/g, "\\'") %>')"
+              title="Delete project"
+              style="
+                margin-left:auto;flex-shrink:0;
+                width:30px;height:30px;
+                display:flex;align-items:center;justify-content:center;
+                background:none;border:1px solid var(--border-base);
+                border-radius:var(--r-sm);
+                color:var(--text-tertiary);cursor:pointer;
+                transition:all 150ms;
+              "
+              onmouseover="this.style.color='var(--danger)';this.style.borderColor='var(--danger)';"
+              onmouseout="this.style.color='var(--text-tertiary)';this.style.borderColor='var(--border-base)';"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path d="M2 3.5h10M5.5 3.5V2.5a1 1 0 011-1h1a1 1 0 011 1v1M3 3.5l.5 8a1 1 0 001 1h5a1 1 0 001-1l.5-8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
           </div>
 
           <div style="background:var(--bg-elevated);border:1px solid var(--border-faint);border-radius:var(--r-sm);padding:10px 12px;">
@@ -223,6 +244,32 @@ function copyToClipboard(text, btn) {
       btn.style.borderColor = '';
     }, 2000);
   });
+}
+</script>
+
+
+<script>
+async function deleteProject(id, name) {
+  if (!confirm('Delete project "' + name + '"? This cannot be undone.')) return;
+  try {
+    const res = await fetch('/dashboard/projects/' + id + '/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      const card = document.getElementById('project-' + id);
+      if (card) {
+        card.style.transition = 'opacity 200ms';
+        card.style.opacity = '0';
+        setTimeout(function(){ card.remove(); location.reload(); }, 220);
+      }
+    } else {
+      alert(data.error || 'Failed to delete project.');
+    }
+  } catch (e) {
+    alert('Failed to delete project. Please try again.');
+  }
 }
 </script>
 

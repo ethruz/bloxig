@@ -27,4 +27,26 @@ router.get('/token-reveal', isAuthenticated, (req, res) => {
   res.json({ token });
 });
 
+// POST /dashboard/projects/:id/delete
+// Deletes a project the logged-in user owns. Ownership is enforced by matching
+// BOTH the project _id AND owner — so users can only delete their own projects.
+router.post('/projects/:id/delete', isAuthenticated, async (req, res) => {
+  try {
+    const result = await Project.findOneAndDelete({
+      _id:   req.params.id,
+      owner: req.user._id     // critical: prevents deleting someone else's project
+    });
+
+    if (!result) {
+      // Either the project doesn't exist or isn't owned by this user
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[Dashboard] Delete project error:', err);
+    return res.status(500).json({ error: 'Failed to delete project.' });
+  }
+});
+
 module.exports = router;

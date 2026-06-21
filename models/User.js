@@ -23,6 +23,11 @@ const UserSchema = new mongoose.Schema({
     lowercase: true,
     maxlength: 30
   },
+  // When the username was last changed (enforces once-per-30-days rule)
+  usernameChangedAt: {
+    type: Date,
+    default: null
+  },
   email: {
     type: String,
     required: true,
@@ -43,6 +48,12 @@ const UserSchema = new mongoose.Schema({
     type: String,
     default: '',
     maxlength: 200
+  },
+  // Chosen avatar, stored as "style:seed:bgcolor" (e.g. "adventurer:Felix:4f7bf7")
+  // Empty string = fall back to initials circle.
+  avatar: {
+    type: String,
+    default: ''
   },
 
   // ── Subscription ───────────────────────────────────────────
@@ -99,14 +110,25 @@ UserSchema.virtual('initials').get(function() {
   return f + l || 'U';
 });
 
+// ── Virtual: avatarUrl ────────────────────────────────────────
+// Builds the DiceBear SVG URL from the stored "style:seed:bg" string.
+// Returns null when no avatar is chosen (caller shows initials instead).
+UserSchema.virtual('avatarUrl').get(function() {
+  if (!this.avatar) return null;
+  const parts = this.avatar.split(':');
+  if (parts.length < 2) return null;
+  const style = encodeURIComponent(parts[0]);
+  const seed  = encodeURIComponent(parts[1]);
+  const bg    = parts[2] ? parts[2].replace(/[^0-9a-fA-F]/g, '') : '4f7bf7';
+  return `https://api.dicebear.com/9.x/${style}/svg?seed=${seed}&backgroundColor=${bg}`;
+});
+
 // ── Auto-generate username from email before save ─────────────
 UserSchema.pre('save', async function(next) {
   if (!this.username) {
-    // Take part before @ and remove special chars
     let base = this.email.split('@')[0].replace(/[^a-z0-9]/gi, '').toLowerCase();
     base = base.substring(0, 20);
 
-    // Check uniqueness, append random digits if taken
     let candidate = base;
     let exists = await mongoose.model('User').findOne({ username: candidate });
     while (exists && exists._id.toString() !== this._id.toString()) {

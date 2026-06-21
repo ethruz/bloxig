@@ -16,6 +16,21 @@ const VALID_VOUCHERS = {
   'LIFETIME50':  { plan: 'Lifetime', discount: '$50 off' },
 };
 
+// ── Avatar picker presets (must match the grid in profile.ejs) ─
+// Stored value format: "style:seed:bgcolor"
+const AVATAR_PRESETS = [
+  'adventurer:Felix:4f7bf7',  'adventurer:Aneka:7c5cff',
+  'bottts:Rocket:3dd68c',     'bottts:Pixel:f5a623',
+  'fun-emoji:Sunny:e5484d',   'fun-emoji:Mochi:14b8c4',
+  'big-smile:Coco:4f7bf7',    'big-smile:Pip:7c5cff',
+  'lorelei:Sage:3dd68c',      'lorelei:Echo:f5a623',
+  'adventurer:Ziggy:e5484d',  'bottts:Volt:14b8c4'
+];
+
+// Username change rule: once every 30 days
+const USERNAME_COOLDOWN_DAYS = 30;
+const USERNAME_REGEX = /^[a-z0-9_]{3,20}$/; // lowercase, digits, underscore, 3–20
+
 // ── GET /profile ──────────────────────────────────────────────
 router.get('/', isAuthenticated, (req, res) => {
   res.render('pages/profile', {
@@ -23,7 +38,8 @@ router.get('/', isAuthenticated, (req, res) => {
     tab:       'account',
     error:     req.flash('error')[0]   || null,
     success:   req.flash('success')[0] || null,
-    countries: COUNTRIES
+    countries: COUNTRIES,
+    avatarPresets: AVATAR_PRESETS
   });
 });
 
@@ -37,7 +53,8 @@ router.get('/:tab', isAuthenticated, (req, res) => {
     tab,
     error:     req.flash('error')[0]   || null,
     success:   req.flash('success')[0] || null,
-    countries: COUNTRIES
+    countries: COUNTRIES,
+    avatarPresets: AVATAR_PRESETS
   });
 });
 
@@ -71,6 +88,78 @@ router.post('/update', isAuthenticated, async (req, res) => {
   }
 });
 
+// ── POST /profile/avatar — Save chosen avatar ─────────────────
+router.post('/avatar', isAuthenticated, async (req, res) => {
+  const choice = (req.body.avatar || '').trim();
+
+  // Empty string is allowed → resets to initials.
+  if (choice !== '' && AVATAR_PRESETS.indexOf(choice) === -1) {
+    req.flash('error', 'Invalid avatar selection.');
+    return res.redirect('/profile/account');
+  }
+
+  try {
+    await User.findByIdAndUpdate(req.user._id, { avatar: choice });
+    req.flash('success', choice ? 'Avatar updated.' : 'Avatar reset to initials.');
+    res.redirect('/profile/account');
+  } catch (err) {
+    console.error('[Profile] Avatar error:', err);
+    req.flash('error', 'Failed to update avatar. Try again.');
+    res.redirect('/profile/account');
+  }
+});
+
+// ── POST /profile/username — Change username (once / 30 days) ─
+router.post('/username', isAuthenticated, async (req, res) => {
+  const raw = (req.body.username || '').trim().toLowerCase().replace(/^@/, '');
+
+  const fail = (msg) => {
+    req.flash('error', msg);
+    return res.redirect('/profile/account');
+  };
+
+  if (!raw) return fail('Username cannot be empty.');
+  if (!USERNAME_REGEX.test(raw)) {
+    return fail('Username must be 3–20 characters: lowercase letters, numbers, or underscore only.');
+  }
+
+  // No change? Nothing to do.
+  if (raw === req.user.username) {
+    return fail('That is already your username.');
+  }
+
+  // Cooldown check
+  const last = req.user.usernameChangedAt;
+  if (last) {
+    const daysSince = (Date.now() - new Date(last).getTime()) / (1000 * 60 * 60 * 24);
+    if (daysSince < USERNAME_COOLDOWN_DAYS) {
+      const left = Math.ceil(USERNAME_COOLDOWN_DAYS - daysSince);
+      return fail(`You can change your username again in ${left} day${left === 1 ? '' : 's'}.`);
+    }
+  }
+
+  try {
+    // Uniqueness check
+    const taken = await User.findOne({ username: raw });
+    if (taken && taken._id.toString() !== req.user._id.toString()) {
+      return fail('That username is already taken.');
+    }
+
+    await User.findByIdAndUpdate(req.user._id, {
+      username: raw,
+      usernameChangedAt: new Date()
+    });
+
+    req.flash('success', 'Username updated.');
+    res.redirect('/profile/account');
+  } catch (err) {
+    console.error('[Profile] Username error:', err);
+    // Duplicate-key race condition
+    if (err.code === 11000) return fail('That username is already taken.');
+    return fail('Failed to update username. Try again.');
+  }
+});
+
 // ── POST /profile/password — Change password ──────────────────
 router.post('/password', isAuthenticated, async (req, res) => {
   const { currentPassword, newPassword, confirmPassword } = req.body;
@@ -84,12 +173,10 @@ router.post('/password', isAuthenticated, async (req, res) => {
     return fail('All password fields are required.');
   }
 
-  // Verify current password
   const user = await User.findById(req.user._id);
   const match = await bcrypt.compare(currentPassword, user.password_hash);
   if (!match) return fail('Current password is incorrect.');
 
-  // Validate new password strength
   const rules = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,20}$/;
   if (!rules.test(newPassword)) {
     return fail('New password must be 8–20 characters with uppercase, lowercase, number, and special character.');
@@ -103,7 +190,7 @@ router.post('/password', isAuthenticated, async (req, res) => {
     const password_hash = await bcrypt.hash(newPassword, salt);
     await User.findByIdAndUpdate(req.user._id, { password_hash });
 
-    req.flash('success', 'Password changed successfully. Stay secure! 🔒');
+    req.flash('success', 'Password changed successfully.');
     res.redirect('/profile/security');
   } catch (err) {
     console.error('[Profile] Password change error:', err);
@@ -121,7 +208,6 @@ router.post('/voucher', isAuthenticated, async (req, res) => {
     return res.redirect('/profile/billing');
   }
 
-  // Already used a voucher
   if (req.user.voucherUsed) {
     req.flash('error', 'You have already redeemed a voucher on this account.');
     return res.redirect('/profile/billing');
@@ -142,7 +228,7 @@ router.post('/voucher', isAuthenticated, async (req, res) => {
     };
 
     await User.findByIdAndUpdate(req.user._id, update);
-    req.flash('success', `Voucher applied! ${voucher.discount} — enjoy ${voucher.plan}! 🎉`);
+    req.flash('success', `Voucher applied! ${voucher.discount} — enjoy ${voucher.plan}.`);
     res.redirect('/profile/billing');
   } catch (err) {
     req.flash('error', 'Failed to apply voucher. Try again.');

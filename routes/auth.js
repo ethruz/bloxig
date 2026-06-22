@@ -4,6 +4,8 @@ const router   = express.Router();
 const passport = require('passport');
 const bcrypt   = require('bcryptjs');
 const User     = require('../models/User');
+const crypto   = require('crypto');
+const { sendResetEmail } = require('../config/mailer');
 
 // ── Password validation rules ──────────────────────────────────
 // Min 8, Max 20, must have uppercase, lowercase, number, symbol
@@ -193,6 +195,133 @@ router.get('/logout', (req, res, next) => {
     req.flash('success', 'You have been signed out.');
     res.redirect('/');
   });
+});
+
+// ── GET /auth/forgot ──────────────────────────────────────────
+// Show the "enter your email" form.
+router.get('/forgot', (req, res) => {
+  if (req.isAuthenticated()) return res.redirect('/dashboard');
+  res.render('pages/forgot', {
+    title:   'Forgot password',
+    error:   req.flash('error')[0]   || null,
+    success: req.flash('success')[0] || null
+  });
+});
+
+// ── POST /auth/forgot ─────────────────────────────────────────
+// Generate a token, save it on the user, email the reset link.
+// Always shows the same success message (don't reveal if an email exists).
+router.post('/forgot', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email || !validateEmail(email)) {
+    req.flash('error', 'Please enter a valid email address.');
+    return res.redirect('/auth/forgot');
+  }
+
+  const genericMsg = 'If an account with that email exists, we sent a reset link. Check your inbox (and spam).';
+
+  try {
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+
+    // Only actually send if the user exists — but DON'T reveal that either way.
+    if (user) {
+      const token = crypto.randomBytes(32).toString('hex');
+      user.resetToken   = token;
+      user.resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      await user.save();
+
+      try {
+        await sendResetEmail(user.email, token, user.firstName);
+      } catch (mailErr) {
+        console.error('[Auth] Failed to send reset email:', mailErr.message);
+        // Roll back the token so a broken email send doesn't leave a dangling token
+        user.resetToken   = null;
+        user.resetExpires = null;
+        await user.save();
+        req.flash('error', 'We could not send the email right now. Please try again later.');
+        return res.redirect('/auth/forgot');
+      }
+    }
+
+    req.flash('success', genericMsg);
+    return res.redirect('/auth/forgot');
+  } catch (err) {
+    console.error('[Auth] Forgot password error:', err);
+    req.flash('error', 'Something went wrong. Please try again.');
+    return res.redirect('/auth/forgot');
+  }
+});
+
+// ── GET /auth/reset/:token ────────────────────────────────────
+// Show the "new password" form if the token is valid + not expired.
+router.get('/reset/:token', async (req, res) => {
+  try {
+    const user = await User.findOne({
+      resetToken:   req.params.token,
+      resetExpires: { $gt: new Date() }
+    });
+
+    if (!user) {
+      req.flash('error', 'That reset link is invalid or has expired. Please request a new one.');
+      return res.redirect('/auth/forgot');
+    }
+
+    res.render('pages/reset', {
+      title: 'Set a new password',
+      token: req.params.token,
+      error:   req.flash('error')[0]   || null,
+      success: null
+    });
+  } catch (err) {
+    console.error('[Auth] Reset GET error:', err);
+    req.flash('error', 'Something went wrong. Please try again.');
+    return res.redirect('/auth/forgot');
+  }
+});
+
+// ── POST /auth/reset/:token ───────────────────────────────────
+// Verify token, validate new password, hash + save, clear token.
+router.post('/reset/:token', async (req, res) => {
+  const { password, confirmPassword } = req.body;
+  const token = req.params.token;
+
+  const renderReset = (msg) => res.render('pages/reset', {
+    title: 'Set a new password',
+    token,
+    error: msg,
+    success: null
+  });
+
+  try {
+    const user = await User.findOne({
+      resetToken:   token,
+      resetExpires: { $gt: new Date() }
+    });
+
+    if (!user) {
+      req.flash('error', 'That reset link is invalid or has expired. Please request a new one.');
+      return res.redirect('/auth/forgot');
+    }
+
+    // Validate the new password with the same rules as signup
+    const passwordError = validatePassword(password);
+    if (passwordError) return renderReset(passwordError);
+    if (password !== confirmPassword) return renderReset('Passwords do not match.');
+
+    // Hash + save, then clear the token so it can't be reused
+    const salt          = await bcrypt.genSalt(12);
+    user.password_hash  = await bcrypt.hash(password, salt);
+    user.resetToken     = null;
+    user.resetExpires   = null;
+    await user.save();
+
+    req.flash('success', 'Your password has been reset. Please sign in.');
+    return res.redirect('/auth/login');
+  } catch (err) {
+    console.error('[Auth] Reset POST error:', err);
+    return renderReset('Something went wrong. Please try again.');
+  }
 });
 
 module.exports = router;

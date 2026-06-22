@@ -100,6 +100,16 @@ const UserSchema = new mongoose.Schema({
     default: null
   },
 
+  // ── Password reset ─────────────────────────────────────────
+  resetToken: {
+    type: String,
+    default: null
+  },
+  resetExpires: {
+    type: Date,
+    default: null
+  },
+
   // ── Voucher ────────────────────────────────────────────────
   voucherUsed: {
     type: String,

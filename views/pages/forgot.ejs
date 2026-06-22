@@ -1,0 +1,36 @@
+<%- include('../layout/header') %>
+
+<section style="min-height:calc(100vh - 56px);display:flex;align-items:center;justify-content:center;padding:48px 20px;">
+  <div style="width:100%;max-width:380px;">
+
+    <div style="margin-bottom:32px;">
+      <h1 style="font-size:var(--text-2xl);letter-spacing:-0.03em;margin-bottom:6px;">Forgot password</h1>
+      <p style="font-size:var(--text-sm);color:var(--text-secondary);">Enter your email and we'll send you a reset link.</p>
+    </div>
+
+    <% if (error) { %>
+      <div style="background:rgba(229,72,77,0.10);border:1px solid rgba(229,72,77,0.25);color:#ff8086;font-size:var(--text-sm);padding:10px 14px;border-radius:var(--r-md);margin-bottom:16px;"><%= error %></div>
+    <% } %>
+    <% if (success) { %>
+      <div style="background:rgba(64,160,90,0.10);border:1px solid rgba(64,160,90,0.25);color:#5fcf80;font-size:var(--text-sm);padding:10px 14px;border-radius:var(--r-md);margin-bottom:16px;"><%= success %></div>
+    <% } %>
+
+    <form action="/auth/forgot" method="POST" style="display:flex;flex-direction:column;gap:16px;">
+      <div class="form-field">
+        <label class="form-label" for="email">Email</label>
+        <input class="form-input" type="email" id="email" name="email"
+          placeholder="you@example.com" required autocomplete="email" />
+      </div>
+
+      <button type="submit" class="btn btn--primary btn--full" style="height:42px;margin-top:4px;">Send reset link</button>
+    </form>
+
+    <p style="font-size:var(--text-sm);color:var(--text-secondary);text-align:center;margin-top:24px;">
+      Remembered it?
+      <a href="/auth/login" style="color:var(--accent);text-decoration:none;">Back to sign in</a>
+    </p>
+
+  </div>
+</section>
+
+<%- include('../layout/footer') %>

@@ -204,7 +204,13 @@
             </li>
           <% }) %>
         </ul>
-        <a href="/auth/signup" class="btn btn--ghost btn--full" style="height:42px;">Get started free</a>
+        <% if (!user) { %>
+          <a href="/auth/signup" class="btn btn--ghost btn--full" style="height:42px;">Get started free</a>
+        <% } else if (user.subscription_status === 'Free') { %>
+          <span class="btn btn--ghost btn--full" style="height:42px;opacity:0.5;cursor:default;">Current plan</span>
+        <% } else { %>
+          <span class="btn btn--ghost btn--full" style="height:42px;opacity:0.4;cursor:default;">Free</span>
+        <% } %>
       </div>
 
       <!-- PRO -->
@@ -225,7 +231,15 @@
             </li>
           <% }) %>
         </ul>
-        <a href="<%= user ? '/checkout/pro' : '/auth/signup' %>" class="btn btn--accent btn--full" style="height:42px;"><%= user ? 'Upgrade to Pro' : 'Start free trial' %></a>
+        <% if (!user) { %>
+          <a href="/auth/signup" class="btn btn--accent btn--full" style="height:42px;">Get Pro</a>
+        <% } else if (user.subscription_status === 'Pro') { %>
+          <span class="btn btn--accent btn--full" style="height:42px;opacity:0.5;cursor:default;">Current plan</span>
+        <% } else if (user.subscription_status === 'Lifetime') { %>
+          <span class="btn btn--accent btn--full" style="height:42px;opacity:0.4;cursor:default;">Included in Lifetime</span>
+        <% } else { %>
+          <a href="/checkout/pro" class="btn btn--accent btn--full" style="height:42px;">Get Pro</a>
+        <% } %>
       </div>
 
       <!-- PRO PLUS LIFETIME -->
@@ -246,7 +260,15 @@
             </li>
           <% }) %>
         </ul>
-        <a href="<%= user ? '/checkout/lifetime' : '/auth/signup' %>" class="btn btn--gold btn--full" style="height:42px;">Get lifetime access</a>
+        <% if (!user) { %>
+          <a href="/auth/signup" class="btn btn--gold btn--full" style="height:42px;">Get lifetime access</a>
+        <% } else if (user.subscription_status === 'Lifetime') { %>
+          <span class="btn btn--gold btn--full" style="height:42px;opacity:0.5;cursor:default;">Current plan</span>
+        <% } else if (user.subscription_status === 'Pro') { %>
+          <a href="/checkout/lifetime" class="btn btn--gold btn--full" style="height:42px;">Upgrade to Lifetime</a>
+        <% } else { %>
+          <a href="/checkout/lifetime" class="btn btn--gold btn--full" style="height:42px;">Get lifetime access</a>
+        <% } %>
       </div>
 
     </div>

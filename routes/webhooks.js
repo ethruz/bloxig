@@ -50,6 +50,26 @@ async function findUser(payload) {
   return null;
 }
 
+// ── Cancel a Lemon Squeezy subscription via API ───────────────
+// Used when a Pro subscriber buys the one-time Lifetime — we cancel their
+// recurring sub so they aren't charged monthly on top of lifetime.
+async function cancelLemonSubscription(subscriptionId) {
+  if (!subscriptionId || !process.env.LEMON_API_KEY) return;
+  try {
+    await fetch(`https://api.lemonsqueezy.com/v1/subscriptions/${subscriptionId}`, {
+      method: 'DELETE',
+      headers: {
+        'Accept':        'application/vnd.api+json',
+        'Content-Type':  'application/vnd.api+json',
+        'Authorization': `Bearer ${process.env.LEMON_API_KEY}`
+      }
+    });
+    console.log(`[Webhook] Cancelled old subscription ${subscriptionId} after lifetime upgrade.`);
+  } catch (e) {
+    console.error('[Webhook] Failed to cancel old subscription:', e.message);
+  }
+}
+
 // ── POST /api/webhooks/lemon ──────────────────────────────────
 router.post('/lemon', async (req, res) => {
   // req.body is a Buffer (raw). Verify signature against it.
@@ -155,10 +175,17 @@ router.post('/lemon', async (req, res) => {
                                attrs.subscription_id; // present if part of a sub
         // If it's the lifetime (non-recurring) purchase, grant Lifetime.
         if (!isSubscription) {
-          user.subscription_status = 'Lifetime';
-          user.proExpiresAt        = null;
+          // If they had an active Pro subscription, cancel it so they don't
+          // keep getting the monthly charge on top of lifetime.
+          const oldSubId = user.lemon_subscription_id;
+          user.subscription_status   = 'Lifetime';
+          user.proExpiresAt          = null;
+          user.lemon_subscription_id = null;
+          user.subscription_ends_at  = null;
           if (attrs.customer_id) user.lemon_customer_id = String(attrs.customer_id);
           await user.save();
+
+          if (oldSubId) await cancelLemonSubscription(oldSubId);
         }
         break;
       }

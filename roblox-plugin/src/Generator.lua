@@ -225,10 +225,17 @@ end
 -- ── Text properties ───────────────────────────────────────────
 local function applyTextProperties(inst, node)
 	inst.Text        = node.characters or ""
-	inst.TextSize    = math.max(1, node.fontSize or 14)
-	inst.TextScaled  = false  -- always lock text size
+	local figmaSize  = math.max(1, node.fontSize or 14)
+	-- Option 3 fidelity: text scales WITH the UI (fills its box) but is capped at
+	-- the original Figma size, so it matches the design on the design-size screen
+	-- and scales down gracefully on smaller screens. No runtime script needed.
+	inst.TextScaled  = true
 	inst.TextWrapped = node.textWrapped ~= false
 	inst.RichText    = node.richText or false
+	local sizeConstraint = Instance.new("UITextSizeConstraint")
+	sizeConstraint.MaxTextSize = figmaSize
+	sizeConstraint.MinTextSize = 1
+	sizeConstraint.Parent = inst
 
 	local fontFamily = node.fontName and node.fontName.family or nil
 	inst.FontFace    = resolveFont(fontFamily)
@@ -264,7 +271,7 @@ local function applyTextProperties(inst, node)
 
 	inst.BackgroundTransparency = 1
 	inst.AutomaticSize          = Enum.AutomaticSize.None
-	inst:SetAttribute("Figblox_LockedTextSize", inst.TextSize)
+	inst:SetAttribute("Figblox_LockedTextSize", figmaSize)
 end
 
 -- ── Decorators ────────────────────────────────────────────────
@@ -276,12 +283,19 @@ local function applyCorner(inst, node)
 	corner.Parent = inst
 end
 
-local function applyStroke(inst, node)
+local STROKE_REF_WIDTH = 1280  -- design reference width for proportional strokes
+
+local function applyStroke(inst, node, frameW)
 	if not node.strokes or #node.strokes == 0 then return end
 	local s      = node.strokes[1]
-	local stroke = Instance.new("UIStroke")
-	stroke.Thickness      = math.max(0, node.strokeWeight or 1)
-	stroke.LineJoinMode   = Enum.LineJoinMode.Round
+	local stroke = inst:FindFirstChildOfClass("UIStroke") or Instance.new("UIStroke")
+	-- Scale thickness relative to the frame so borders keep their Figma proportion
+	-- across screen sizes (a raw px value looks chunky when the UI scales up).
+	local rawWeight = math.max(0, node.strokeWeight or 1)
+	local refW      = math.max(1, frameW or STROKE_REF_WIDTH)
+	local scaled    = (rawWeight / refW) * STROKE_REF_WIDTH
+	stroke.Thickness       = math.max(0.5, scaled)
+	stroke.LineJoinMode    = Enum.LineJoinMode.Round
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	if s.color then
 		stroke.Color        = toColor3(s.color)
@@ -315,34 +329,16 @@ local function applyAspectRatio(inst, node)
 end
 
 local function applyLayout(inst, node)
-	if node.layoutMode == "HORIZONTAL" or node.layoutMode == "VERTICAL" then
-		local list = Instance.new("UIListLayout")
-		list.FillDirection = node.layoutMode == "HORIZONTAL"
-			and Enum.FillDirection.Horizontal
-			or  Enum.FillDirection.Vertical
-		list.SortOrder  = Enum.SortOrder.LayoutOrder
-		list.Padding    = UDim.new(0, math.max(0, node.itemSpacing or 0))
-		list.HorizontalAlignment = Enum.HorizontalAlignment.Left
-		list.VerticalAlignment   = Enum.VerticalAlignment.Top
-		if node.counterAxisAlignItems == "CENTER" then
-			if node.layoutMode == "HORIZONTAL" then
-				list.VerticalAlignment = Enum.VerticalAlignment.Center
-			else
-				list.HorizontalAlignment = Enum.HorizontalAlignment.Center
-			end
-		end
-		list.Parent = inst
-
-	elseif node.layoutMode == "GRID" then
-		local grid = Instance.new("UIGridLayout")
-		grid.CellSize    = UDim2.new(0, math.max(1, node.cellWidth or 100),
-		                             0, math.max(1, node.cellHeight or 100))
-		grid.CellPadding = UDim2.new(0, math.max(0, node.itemSpacing or 4),
-		                             0, math.max(0, node.itemSpacing or 4))
-		grid.SortOrder      = Enum.SortOrder.LayoutOrder
-		grid.FillDirection  = Enum.FillDirection.Horizontal
-		grid.Parent         = inst
-	end
+	-- DISABLED (v3.1): Figma auto-layout (UIListLayout/UIGridLayout) is intentionally
+	-- NOT applied. Our exporter already gives every child pixel-accurate, parent-
+	-- relative positions, so re-running Roblox's layout engine here only FIGHTS those
+	-- positions (a UIGridLayout in particular ignores Position entirely and crams
+	-- children into fixed cells, scrambling the design). Positions are authoritative.
+	--
+	-- To support dynamic/reflowing lists later, we'd apply a UIListLayout ONLY for
+	-- frames with layoutMode set AND skip setting child positions for those frames.
+	-- That's a deliberate future feature, not the default.
+	return
 end
 
 local function injectIdentity(inst, node)
@@ -501,12 +497,19 @@ function Generator.createInstance(node, parent, frameW, frameH)
 	-- Default → Frame
 	else
 		inst = Instance.new("Frame")
-		inst.ClipsDescendants = node.clipsContent or false
+		-- Figma frames clip by default; honor exported clipsContent (default true)
+		inst.ClipsDescendants = (node.clipsContent ~= false)
 		applyFill(inst, node)
 	end
 
 	-- ── Common properties ─────────────────────────────────────
-	inst.Name        = (node.name or "BloxigElement"):sub(1, 100)
+	-- Apply clipping to container types when Figma says so (frames clip by default)
+	if inst:IsA("Frame") or inst:IsA("ScrollingFrame") or inst:IsA("CanvasGroup") then
+		if node.clipsContent ~= nil then
+			inst.ClipsDescendants = (node.clipsContent ~= false)
+		end
+	end
+		inst.Name        = (node.name or "BloxigElement"):sub(1, 100)
 	inst.Visible     = node.visible ~= false
 	inst.ZIndex      = math.clamp(node.zIndex or 1, 1, 100)
 	inst.AnchorPoint = Vector2.new(0, 0)
@@ -520,7 +523,7 @@ function Generator.createInstance(node, parent, frameW, frameH)
 	-- ── Decorators ────────────────────────────────────────────
 	local refW, refH = resolveParentSize(parent, frameW, frameH)
 	applyCorner(inst, node)
-	applyStroke(inst, node)
+	applyStroke(inst, node, frameW)
 	applyPadding(inst, node, refW, refH)
 	applyLayout(inst, node)
 
@@ -648,8 +651,14 @@ function Generator.updateInstance(inst, node, parent, frameW, frameH)
 	if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then
 		if node.characters ~= nil then inst.Text = node.characters end
 		if node.fontSize then
-			inst.TextSize = math.max(1, node.fontSize)
-			inst:SetAttribute("Figblox_LockedTextSize", inst.TextSize)
+			local fs = math.max(1, node.fontSize)
+			inst.TextScaled = true
+			local c = inst:FindFirstChildOfClass("UITextSizeConstraint")
+				or Instance.new("UITextSizeConstraint")
+			c.MaxTextSize = fs
+			c.MinTextSize = 1
+			c.Parent      = inst
+			inst:SetAttribute("Figblox_LockedTextSize", fs)
 		end
 		if node.fills and #node.fills > 0 then
 			local fill = node.fills[1]

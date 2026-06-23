@@ -175,18 +175,21 @@ function ScaleConverter.lockText(inst, node, frameH)
 		return
 	end
 
-	-- Lock: never auto-scale text — preserves designer's exact size
-	inst.TextScaled = false
+	-- Option 3 fidelity: text scales WITH the UI but is capped at the Figma size.
+	-- Use the stored locked size (from Generator) or the node's fontSize.
+	local fontSize = inst:GetAttribute("Figblox_LockedTextSize")
+		or math.max(1, (node and node.fontSize) or inst.TextSize or 14)
 
-	-- Set exact pixel size from Figma
-	local fontSize = math.max(1, node and node.fontSize or 14)
-	inst.TextSize  = fontSize
-
-	-- Store the locked size as an attribute for future SmartMerge updates
-	inst:SetAttribute("Figblox_LockedTextSize", fontSize)
-
-	-- AutomaticSize off — text box grows with content otherwise
+	inst.TextScaled    = true
 	inst.AutomaticSize = Enum.AutomaticSize.None
+
+	local c = inst:FindFirstChildOfClass("UITextSizeConstraint")
+		or Instance.new("UITextSizeConstraint")
+	c.MaxTextSize = math.max(1, fontSize)
+	c.MinTextSize = 1
+	c.Parent      = inst
+
+	inst:SetAttribute("Figblox_LockedTextSize", fontSize)
 end
 
 -- ════════════════════════════════════════════════════════════════

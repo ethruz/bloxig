@@ -122,7 +122,7 @@ local function updateVisualProperties(inst, node, parent, parentW, parentH, root
 				inst.TextTransparency = 1 - math.clamp(fill.color.a or 1, 0, 1)
 			end
 		end
-		-- Lock text — TextScaled=false, exact px size (root ref)
+		-- Lock text — scales with UI, capped at Figma px (Option 3)
 		ScaleConverter.lockText(inst, node, rootH)
 	end
 

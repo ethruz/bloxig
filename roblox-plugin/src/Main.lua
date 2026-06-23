@@ -15,10 +15,11 @@ local ChangeHistory = game:GetService("ChangeHistoryService")
 local SmartMerge    = require(script.Parent.SmartMerge)
 local Generator     = require(script.Parent.Generator)
 local ScaleConverter = require(script.Parent.ScaleConverter)
+local ImageUploader  = require(script.Parent.ImageUploader)
 
 local PLUGIN_NAME    = "Bloxig"
-local PLUGIN_VERSION = "2.1.0"
-local SERVER_URL     = "http://localhost:3000" -- → https://bloxig.onrender.com in prod
+local PLUGIN_VERSION = "2.2.0"
+local SERVER_URL     = "https://bloxig.onrender.com"
 
 -- ── Toolbar ───────────────────────────────────────────────────
 local toolbar = plugin:CreateToolbar(PLUGIN_NAME)
@@ -46,6 +47,11 @@ local function saveToken(t)     plugin:SetSetting("BloxigToken",     t) end
 local function loadToken()      return plugin:GetSetting("BloxigToken")     or "" end
 local function saveProjectId(i) plugin:SetSetting("BloxigProjectId", i) end
 local function loadProjectId()  return plugin:GetSetting("BloxigProjectId") or "" end
+-- Open Cloud creds for automatic image upload (stored LOCALLY, never sent to Bloxig)
+local function saveApiKey(k)    plugin:SetSetting("BloxigApiKey",    k) end
+local function loadApiKey()     return plugin:GetSetting("BloxigApiKey")    or "" end
+local function saveUserId(u)    plugin:SetSetting("BloxigUserId",    u) end
+local function loadUserId()     return plugin:GetSetting("BloxigUserId")    or "" end
 
 -- ── HTTP fetch ────────────────────────────────────────────────
 local function fetchLayout(projectId, token)
@@ -200,7 +206,7 @@ local function buildUI()
 	scroll.BackgroundTransparency = 1
 	scroll.ScrollBarThickness = 4
 	scroll.ScrollBarImageColor3 = Color3.fromRGB(80,80,80)
-	scroll.CanvasSize        = UDim2.new(0,0,0,640)
+	scroll.CanvasSize        = UDim2.new(0,0,0,780)
 	scroll.Parent            = bg
 
 	local layout = Instance.new("UIListLayout")
@@ -270,29 +276,35 @@ local function buildUI()
 	makeLabel("PROJECT ID", 16, Color3.fromRGB(85,85,85), 3)
 	local projectBox = makeInput("e.g. 6650f3a2c1234abcd", loadProjectId(), 4)
 
-	local statusLabel = makeLabel("Ready. Enter token and project ID.", 80, Color3.fromRGB(85,85,85), 5)
+	-- ── Image auto-sync (optional) ────────────────────────────
+	makeLabel("IMAGE SYNC (optional · for textures/art)", 16, Color3.fromRGB(85,85,85), 5)
+	local apiKeyBox = makeInput("Roblox Open Cloud API key", loadApiKey(), 6)
+	apiKeyBox.PlaceholderText = "Open Cloud API key (for auto image upload)"
+	local userIdBox = makeInput("Your Roblox user ID (e.g. 1234567)", loadUserId(), 7)
+
+	local statusLabel = makeLabel("Ready. Enter token and project ID.", 80, Color3.fromRGB(85,85,85), 8)
 	statusLabel.TextWrapped = true
 
 	local div = Instance.new("Frame")
 	div.Size             = UDim2.new(1,-24,0,1)
 	div.BackgroundColor3 = Color3.fromRGB(30,30,30)
 	div.BorderSizePixel  = 0
-	div.LayoutOrder      = 6
+	div.LayoutOrder      = 9
 	div.Parent           = scroll
 
 	local previewBtn = makeButton("Preview Import  [+] [~] [=]",
-		Color3.fromRGB(28,28,28), Color3.fromRGB(153,153,153), 7)
+		Color3.fromRGB(28,28,28), Color3.fromRGB(153,153,153), 10)
 
 	local confirmBtn = makeButton("✓  Confirm & Import",
-		Color3.fromRGB(35,35,35), Color3.fromRGB(255,255,255), 8)
+		Color3.fromRGB(35,35,35), Color3.fromRGB(255,255,255), 11)
 	confirmBtn.Active = false
 
-	makeLabel("", 4, nil, 9)
+	makeLabel("", 4, nil, 12)
 	local orphanBtn = makeButton("Remove Orphaned Elements",
-		Color3.fromRGB(40,18,18), Color3.fromRGB(229,72,77), 10)
+		Color3.fromRGB(40,18,18), Color3.fromRGB(229,72,77), 13)
 
 	makeLabel("Bloxig " .. PLUGIN_VERSION .. "  ·  bloxig.com",
-		20, Color3.fromRGB(51,51,51), 11)
+		20, Color3.fromRGB(51,51,51), 14)
 
 	-- ── State ─────────────────────────────────────────────────
 	local pendingPayload = nil
@@ -304,6 +316,8 @@ local function buildUI()
 
 	tokenBox.FocusLost:Connect(function()   saveToken(tokenBox.Text) end)
 	projectBox.FocusLost:Connect(function() saveProjectId(projectBox.Text) end)
+	apiKeyBox.FocusLost:Connect(function()  saveApiKey(apiKeyBox.Text) end)
+	userIdBox.FocusLost:Connect(function()  saveUserId(userIdBox.Text) end)
 
 	-- ── Preview ───────────────────────────────────────────────
 	previewBtn.MouseButton1Click:Connect(function()
@@ -352,6 +366,8 @@ local function buildUI()
 			setStatus("⚠ Run Preview first.", Color3.fromRGB(229,72,77)); return
 		end
 
+		local token = tokenBox.Text   -- needed for the image-upload server call
+
 		setStatus("Importing...", Color3.fromRGB(79,123,247))
 		confirmBtn.Active = false
 
@@ -377,6 +393,45 @@ local function buildUI()
 			-- ✅ FIX 2: Run tool chain — Lock Text + Lock Stroke
 			local locked = runToolChain(container, pendingPayload, stats)
 
+			-- ── Image auto-sync ───────────────────────────────────
+			-- If the payload bundled images AND the user gave Open Cloud
+			-- creds, upload each PNG to their account and link by name.
+			local imageMsg = ""
+			local images   = pendingPayload.images
+			local hasImages = false
+			if images then
+				for _ in pairs(images) do hasImages = true break end
+			end
+
+			if hasImages then
+				local apiKey = apiKeyBox.Text
+				local userId = userIdBox.Text
+				if apiKey ~= "" and userId ~= "" then
+					setStatus("Uploading images... (this can take a minute)",
+						Color3.fromRGB(79,123,247))
+
+					local imageMap, errors = ImageUploader.uploadAll(
+						images, apiKey, userId, SERVER_URL, token,
+						function(stage)
+							setStatus("Images: " .. stage, Color3.fromRGB(79,123,247))
+						end
+					)
+
+					local linkedCount = Generator.linkImages(container, imageMap)
+					local errCount = errors and #errors or 0
+					imageMsg = "\n  Images linked: " .. linkedCount
+					if errCount > 0 then
+						imageMsg = imageMsg .. "  (" .. errCount .. " failed)"
+						warn("[Bloxig] Image upload errors:")
+						for _, e in ipairs(errors) do warn("  - " .. e) end
+					end
+				else
+					imageMsg = "\n  Images: " .. (function()
+						local n = 0; for _ in pairs(images) do n = n + 1 end; return n
+					end)() .. " found — add API key + user ID to auto-upload"
+				end
+			end
+
 			-- ✅ FIX 3: Mark undo waypoint AFTER all changes
 			ChangeHistory:SetWaypoint("Bloxig Import Complete")
 
@@ -386,7 +441,8 @@ local function buildUI()
 				"  Merged:   " .. (stats and stats.merged   or 0) .. "\n" ..
 				"  Orphans:  " .. (stats and stats.orphaned or 0) .. "\n" ..
 				"  Locked text:   " .. locked.text .. "\n" ..
-				"  Locked stroke: " .. locked.stroke,
+				"  Locked stroke: " .. locked.stroke ..
+				imageMsg,
 				Color3.fromRGB(61,214,140)
 			)
 

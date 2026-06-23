@@ -14,6 +14,20 @@ router.post('/export', verifyJWT, async (req, res) => {
   if (!json_layout_data) {
     return res.status(400).json({ error: 'json_layout_data is required.' });
   }
+
+  // Guard: bundled images (base64 PNGs) live inside json_layout_data. MongoDB
+  // documents cap at 16MB; reject oversized payloads with a clear message
+  // instead of a cryptic DB error. ~14MB leaves room for the rest of the doc.
+  try {
+    const approxBytes = Buffer.byteLength(JSON.stringify(json_layout_data), 'utf8');
+    if (approxBytes > 14 * 1024 * 1024) {
+      return res.status(413).json({
+        error: 'payload_too_large',
+        message: 'This design has too many or too large images to sync (over ~14MB). ' +
+                 'Try exporting fewer image-heavy frames at once, or reduce image sizes.'
+      });
+    }
+  } catch (e) { /* if stringify fails, let it proceed and DB will validate */ }
   if (!figma_frame_id) {
     return res.status(400).json({ error: 'figma_frame_id is required.' });
   }

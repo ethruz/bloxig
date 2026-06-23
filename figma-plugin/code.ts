@@ -37,6 +37,9 @@ interface BloxigNode {
   strokes:       readonly Paint[];
   strokeWeight:  number;
   cornerRadius?: number;
+  clipsContent?: boolean;
+  imageName?:    string;
+  isRaster?:     boolean;
   fontName?:     FontName;
   fontSize?:     number;
   characters?:   string;
@@ -248,7 +251,12 @@ async function handleExport(token: string) {
 
   let serialised: BloxigNode | null;
   try {
-    serialised = serialiseNode(node);
+    // Seed the recursion with the root frame's own absolute origin, so its
+    // direct children come out relative to the frame's top-left (0,0).
+    const rootAbb = (node as any).absoluteBoundingBox;
+    const rootAbsX = rootAbb && typeof rootAbb.x === 'number' ? rootAbb.x : ((node as any).x ?? 0);
+    const rootAbsY = rootAbb && typeof rootAbb.y === 'number' ? rootAbb.y : ((node as any).y ?? 0);
+    serialised = serialiseNode(node, rootAbsX, rootAbsY);
   } catch (err) {
     figma.ui.postMessage({ type: 'ERROR', message: 'Serialisation failed: ' + String(err) });
     return;
@@ -263,8 +271,20 @@ async function handleExport(token: string) {
   const frameH = 'height' in node ? (node as FrameNode).height : 100;
   const frameName = parseLayerName(node.name).cleanName;
 
+  // -- Collect image PNGs ----------------------------------------
+  // Walk the tree; for every node that got an imageName, render it to PNG
+  // bytes (base64) so the user can upload them to Roblox. Keyed by imageName.
+  figma.ui.postMessage({ type: 'PROGRESS', message: 'Rendering images...' });
+  const images: { [imageName: string]: string } = {};
+  try {
+    await collectImages(node, images);
+  } catch (err) {
+    // Non-fatal: export still works, images just won't be bundled.
+    figma.ui.postMessage({ type: 'PROGRESS', message: 'Image render skipped: ' + String(err) });
+  }
+
   const payload = {
-    version:      '1.3.0',
+    version:      '1.4.0',
     exportedAt:   new Date().toISOString(),
     figmaFileKey: figma.fileKey ?? 'local',
     figmaFileId:  figma.fileKey ?? 'local',
@@ -274,7 +294,8 @@ async function handleExport(token: string) {
       width:  frameW,
       height: frameH
     },
-    nodes: serialised.children
+    nodes:  serialised.children,
+    images: images   // { imageName: base64PNG }
   };
 
   figma.ui.postMessage({ type: 'PROGRESS', message: 'Sending to Bloxig server...' });
@@ -349,28 +370,195 @@ function collectTextNodes(node: SceneNode, result: TextNode[]): void {
   }
 }
 
+// -- Image collector -------------------------------------------
+// Walks the tree; every node that qualifies as an image (IMAGE fill or .raster)
+// is rendered to a PNG via exportAsync and stored as base64, keyed by the same
+// imageName the serialiser assigned (so the Roblox linker can match them).
+async function collectImages(
+  node: SceneNode,
+  out: { [imageName: string]: string }
+): Promise<void> {
+  if (node.visible === false) return;
+
+  const parsed = parseLayerName(node.name);
+  if (parsed.isIgnored) return;
+
+  const imgName = imageNameFor(node, parsed);
+  if (imgName && !out[imgName]) {
+    try {
+      const bytes = await (node as any).exportAsync({
+        format: 'PNG',
+        constraint: { type: 'SCALE', value: 2 }   // 2x for crisp upscaling
+      });
+      out[imgName] = figma.base64Encode(bytes);
+    } catch (e) {
+      // skip this image; non-fatal
+    }
+  }
+
+  if ('children' in node) {
+    for (const child of (node as ChildrenMixin).children) {
+      await collectImages(child, out);
+    }
+  }
+}
+
+// -- Fill / paint normaliser -----------------------------------
+// Figma's Paint shape doesn't match what the Roblox Generator expects:
+//   • SOLID alpha lives in paint.opacity, NOT color.a
+//   • Gradients give a `gradientTransform` MATRIX, not an angle
+//   • gradient stop colors already carry r,g,b,a
+// We normalise here so the Lua side reads a clean, predictable shape:
+//   SOLID    -> { type:'SOLID', color:{r,g,b,a} }
+//   GRADIENT -> { type, gradientStops:[{position,color:{r,g,b,a}}], gradientAngle }
+//   IMAGE    -> { type:'IMAGE', imageHash, scaleMode }
+
+interface NormColor { r: number; g: number; b: number; a: number; }
+interface NormFill {
+  type: string;
+  color?: NormColor;
+  gradientStops?: { position: number; color: NormColor }[];
+  gradientAngle?: number;       // radians
+  imageHash?: string | null;
+  scaleMode?: string;
+  visible?: boolean;
+}
+
+// Convert Figma's gradientTransform (2x3 affine matrix) into a rotation angle.
+// The gradient direction is the first row of the transform; Roblox UIGradient
+// uses degrees, but we emit radians and let the Lua convert (math.deg).
+function gradientTransformToAngle(t: any): number {
+  if (!t || !t[0]) return 0;
+  // t = [[a, b, tx], [c, d, ty]] — direction vector is (a, b)
+  const a = t[0][0];
+  const b = t[0][1];
+  return Math.atan2(b, a);   // radians
+}
+
+function normalizePaint(paint: any): NormFill | null {
+  if (!paint) return null;
+  if (paint.visible === false) return null;
+
+  const opacity = paint.opacity == null ? 1 : paint.opacity;
+
+  if (paint.type === 'SOLID') {
+    const c = paint.color || { r: 1, g: 1, b: 1 };
+    return {
+      type: 'SOLID',
+      color: { r: c.r, g: c.g, b: c.b, a: opacity }   // fold opacity into alpha
+    };
+  }
+
+  if (paint.type === 'GRADIENT_LINEAR' || paint.type === 'GRADIENT_RADIAL' ||
+      paint.type === 'GRADIENT_ANGULAR' || paint.type === 'GRADIENT_DIAMOND') {
+    const stops = (paint.gradientStops || []).map((st: any) => ({
+      position: st.position,
+      color: {
+        r: st.color.r, g: st.color.g, b: st.color.b,
+        // multiply stop alpha by overall paint opacity
+        a: (st.color.a == null ? 1 : st.color.a) * opacity
+      }
+    }));
+    return {
+      type: paint.type,
+      gradientStops: stops,
+      gradientAngle: gradientTransformToAngle(paint.gradientTransform)
+    };
+  }
+
+  if (paint.type === 'IMAGE') {
+    return {
+      type: 'IMAGE',
+      imageHash: paint.imageHash || null,
+      scaleMode: paint.scaleMode || 'FILL'
+    };
+  }
+
+  // Unknown paint type — skip it
+  return null;
+}
+
+function normalizePaints(paints: any): NormFill[] {
+  if (!paints || paints === figma.mixed || !Array.isArray(paints)) return [];
+  const out: NormFill[] = [];
+  for (const p of paints) {
+    const n = normalizePaint(p);
+    if (n) out.push(n);
+  }
+  return out;
+}
+
+// -- Image detection + naming ----------------------------------
+// We export a PNG for: (a) nodes with an IMAGE fill (textures, art, coins),
+// and (b) nodes explicitly tagged .raster. Vectors are NOT auto-rasterised
+// (would bloat exports); tag them .raster to force it.
+//
+// imageName is the stable matching key used by the Roblox linker. We use
+// "{cleanName}_{nodeId}" with the id sanitised to be filename-safe, which
+// GUARANTEES uniqueness (two layers both named "Rays" never collide).
+
+function sanitiseForName(s: string): string {
+  return (s || '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+}
+
+function nodeHasImageFill(n: any): boolean {
+  const fills = n.fills;
+  if (!fills || fills === figma.mixed || !Array.isArray(fills)) return false;
+  return fills.some((f: any) => f && f.type === 'IMAGE' && f.visible !== false);
+}
+
+// Returns the imageName to assign, or null if this node isn't an image node.
+function imageNameFor(node: SceneNode, parsed: ParsedName): string | null {
+  const n = node as any;
+  const isRaster = parsed.prefixes.indexOf('raster') !== -1;
+  if (isRaster || nodeHasImageFill(n)) {
+    return sanitiseForName(parsed.cleanName) + '_' + sanitiseForName(node.id);
+  }
+  return null;
+}
+
 // -- Node serialiser -------------------------------------------
 // Returns null when the node is tagged .ignore (so it is skipped).
-function serialiseNode(node: SceneNode): BloxigNode | null {
+function serialiseNode(node: SceneNode, parentAbsX: number, parentAbsY: number): BloxigNode | null {
   const parsed = parseLayerName(node.name);
   if (parsed.isIgnored) return null;            // .ignore -> drop entirely
 
   const n = node as any;
+
+  // ── Coordinate normalisation ──────────────────────────────────
+  // Figma is inconsistent: children of a FRAME use parent-relative x/y,
+  // but children of a GROUP/SECTION/COMPONENT_SET carry near-absolute
+  // canvas coordinates. To make the JSON uniformly parent-relative
+  // (which is what the Roblox Generator assumes), we derive position
+  // from absoluteBoundingBox minus the parent's absolute origin.
+  // Every node has absoluteBoundingBox; fall back to n.x/n.y if missing.
+  let absX = parentAbsX, absY = parentAbsY;
+  const abb = n.absoluteBoundingBox;
+  if (abb && typeof abb.x === 'number') {
+    absX = abb.x;
+    absY = abb.y;
+  } else if (typeof n.x === 'number') {
+    // Fallback: treat n.x/n.y as already-absolute(ish)
+    absX = parentAbsX + n.x;
+    absY = parentAbsY + n.y;
+  }
+  const relX = absX - parentAbsX;
+  const relY = absY - parentAbsY;
 
   const base: BloxigNode = {
     id:           node.id,
     name:         parsed.cleanName,             // clean Roblox-facing name
     rawName:      parsed.rawName,               // original, for Generator fallback
     type:         node.type,                    // REAL Figma type (not coerced)
-    x:            n.x            ?? 0,
-    y:            n.y            ?? 0,
+    x:            relX,
+    y:            relY,
     width:        n.width        ?? 0,
     height:       n.height       ?? 0,
     visible:      n.visible      ?? true,
     opacity:      n.opacity      ?? 1,
     rotation:     n.rotation     ?? 0,
-    fills:        (n.fills !== figma.mixed ? n.fills   : []) ?? [],
-    strokes:      (n.strokes !== figma.mixed ? n.strokes : []) ?? [],
+    fills:        normalizePaints(n.fills) as any,
+    strokes:      normalizePaints(n.strokes) as any,
     strokeWeight: n.strokeWeight ?? 0,
     children:     []
   };
@@ -378,6 +566,22 @@ function serialiseNode(node: SceneNode): BloxigNode | null {
   // The whole point of v1.3: hand the Generator a clean prefixes array.
   if (parsed.prefixes.length > 0) {
     base.prefixes = parsed.prefixes;
+  }
+
+  // Image node? Assign a stable imageName so the Roblox linker can match the
+  // uploaded PNG to this ImageLabel. (PNG bytes are collected separately.)
+  const imgName = imageNameFor(node, parsed);
+  if (imgName) {
+    base.imageName = imgName;
+    base.isRaster  = parsed.prefixes.indexOf('raster') !== -1 || undefined;
+  }
+
+  // Clipping — Figma frames clip their content by default. Export it so the
+  // Roblox side can match (otherwise decorative/overflowing children spill out).
+  if (typeof n.clipsContent === 'boolean') {
+    base.clipsContent = n.clipsContent;
+  } else if (node.type === 'FRAME' || node.type === 'COMPONENT' || node.type === 'INSTANCE') {
+    base.clipsContent = true;   // frames clip by default in Figma
   }
 
   // Corner radius
@@ -409,7 +613,7 @@ function serialiseNode(node: SceneNode): BloxigNode | null {
   if ('children' in node) {
     base.children = (node as ChildrenMixin).children
       .filter(c => c.visible !== false)
-      .map(c => serialiseNode(c))
+      .map(c => serialiseNode(c, absX, absY))   // children are relative to THIS node's origin
       .filter((c): c is BloxigNode => c !== null);
   }
 

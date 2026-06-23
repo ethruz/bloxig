@@ -22,6 +22,7 @@ const marketplaceRoutes = require('./routes/marketplace');
 const apiRoutes         = require('./routes/api');
 const webhookRoutes     = require('./routes/webhooks');
 const profileRoutes     = require('./routes/profile');
+const imageUploadRoutes = require('./routes/imageUpload'); 
 
 const app = express();
 
@@ -97,7 +98,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Body Parsers ──────────────────────────────────────────────
 app.use('/api/webhooks', express.raw({ type: 'application/json' }));
-app.use(express.json({ limit: '10mb' }));  // ← limit payload size
+app.use(express.json({ limit: '50mb' }));  // raised for image upload payloads  // ← limit payload size
 app.use(express.urlencoded({ extended: false }));
 
 // ── Session ───────────────────────────────────────────────────
@@ -136,6 +137,7 @@ app.use('/dashboard',    dashboardRoutes);
 app.use('/marketplace',  marketplaceRoutes);
 app.use('/profile',      profileRoutes);
 app.use('/api',          apiRoutes);
+app.use('/api',          imageUploadRoutes); 
 app.use('/api/webhooks', webhookRoutes);
 
 // ── Landing Page ──────────────────────────────────────────────

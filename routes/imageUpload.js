@@ -9,15 +9,18 @@
 //
 // FLOW:
 //   Plugin POSTs { images: { name: base64png }, apiKey, userId }
-//   -> for each image: POST multipart to Open Cloud Assets API
+//   -> dedupe identical images by content hash (anime UIs reuse one texture
+//      dozens of times) and upload each UNIQUE image only ONCE
+//   -> for each unique image: POST multipart to Open Cloud Assets API
 //   -> poll the operation until done
-//   -> collect { name: "rbxassetid://<id>" }
-//   -> return the map; plugin links by name.
+//   -> fan the resulting asset id back out to every name that shares it
+//   -> return { name: "rbxassetid://<id>" }; plugin links by name.
 //
 // The user's API key is used transiently and NEVER stored.
 // Node 18+ has global fetch / FormData / Blob — no extra deps.
 
 const express = require('express');
+const crypto  = require('crypto');
 const router  = express.Router();
 const { verifyJWT } = require('../middleware/isAuthenticated');
 
@@ -26,6 +29,10 @@ const OPS_URL    = 'https://apis.roblox.com/assets/v1/operations/';
 
 const MAX_POLLS  = 15;
 const POLL_DELAY = 1500; // ms
+
+// Cap on the number of UNIQUE images per import (after dedupe). Heavy texture
+// reuse no longer counts against this — only genuinely distinct images do.
+const MAX_UNIQUE_IMAGES = 60;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -106,18 +113,39 @@ router.post('/upload-images', verifyJWT, async (req, res) => {
   if (names.length === 0) {
     return res.json({ success: true, imageMap: {}, errors: [] });
   }
-  if (names.length > 60) {
-    return res.status(413).json({ error: 'too many images (max 60 per import)' });
+
+  // ── Dedupe by content hash ───────────────────────────────────
+  // Anime UIs reuse the same texture many times (one ray/texture can appear
+  // 50+ times). Hash each blob, upload each UNIQUE image ONCE, then fan the
+  // resulting asset id back out to every name sharing that hash. Turns e.g.
+  // 159 uploads into ~32 — far fewer Open Cloud calls + moderation polls.
+  const hashOf  = {};   // name -> hash
+  const repName = {};   // hash -> first name carrying it (the one we upload)
+  for (const name of names) {
+    const b64 = images[name];
+    if (typeof b64 !== 'string' || b64.length === 0) continue;
+    const h = crypto.createHash('md5').update(b64).digest('hex');
+    hashOf[name] = h;
+    if (!repName[h]) repName[h] = name;
   }
 
-  const imageMap = {};
+  const uniqueHashes = Object.keys(repName);
+
+  // Cap applies to UNIQUE images only — reuse is free.
+  if (uniqueHashes.length > MAX_UNIQUE_IMAGES) {
+    return res.status(413).json({
+      error: `too many unique images (${uniqueHashes.length}, max ${MAX_UNIQUE_IMAGES} per import)`
+    });
+  }
+
+  const idByHash = {};   // hash -> 'rbxassetid://...'
   const errors   = [];
 
-  // Upload sequentially to stay well under Open Cloud rate limits.
-  for (const name of names) {
+  // Upload one representative per unique hash, sequentially (rate-limit safe).
+  for (const h of uniqueHashes) {
+    const name = repName[h];
     try {
-      const b64 = images[name];
-      const buffer = Buffer.from(b64, 'base64');
+      const buffer = Buffer.from(images[name], 'base64');
       if (!buffer || buffer.length === 0) {
         errors.push(`${name}: empty image`);
         continue;
@@ -130,13 +158,25 @@ router.post('/upload-images', verifyJWT, async (req, res) => {
       } else {
         assetId = await pollOperation(apiKey, started);
       }
-      imageMap[name] = 'rbxassetid://' + assetId;
+      idByHash[h] = 'rbxassetid://' + assetId;
     } catch (err) {
       errors.push(`${name}: ${err.message || String(err)}`);
     }
   }
 
-  res.json({ success: true, imageMap, errors });
+  // Fan out: every original name -> its hash's uploaded asset id.
+  const imageMap = {};
+  for (const name of names) {
+    const h = hashOf[name];
+    if (h && idByHash[h]) imageMap[name] = idByHash[h];
+  }
+
+  res.json({
+    success: true,
+    imageMap,
+    errors,
+    stats: { received: names.length, uploaded: uniqueHashes.length }
+  });
 });
 
 module.exports = router;

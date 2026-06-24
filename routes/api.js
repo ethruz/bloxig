@@ -20,7 +20,7 @@ router.post('/export', verifyJWT, async (req, res) => {
   // instead of a cryptic DB error. ~14MB leaves room for the rest of the doc.
   try {
     const approxBytes = Buffer.byteLength(JSON.stringify(json_layout_data), 'utf8');
-    if (approxBytes > 14 * 1024 * 1024) {
+    if (approxBytes > 15.5 * 1024 * 1024) {
       return res.status(413).json({
         error: 'payload_too_large',
         message: 'This design has too many or too large images to sync (over ~14MB). ' +

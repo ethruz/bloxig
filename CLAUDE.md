@@ -391,60 +391,78 @@ correct positions, nesting, text sizing, clipping — and scale cleanly across d
 **Files changed:** figma-plugin/code.ts (+code.js compiled), roblox-plugin
 Generator.lua, ScaleConverter.lua, SmartMerge.lua.
 
-## 🖼️ IMAGE AUTO-UPLOAD — BUILT (this session)
-Images now export AND auto-upload to Roblox. This closes the biggest fidelity gap
-(blank textures/art/coins) and is the key differentiator vs Figblox (they require
-manual upload every time; Bloxig auto-uploads).
+## 🖼️ IMAGE AUTO-UPLOAD — BUILT + ARCHITECTURE CORRECTED (this session)
+Images now export AND auto-upload to Roblox. Key differentiator vs Figblox (they
+require manual upload every time; Bloxig auto-uploads). Closes the blank-textures gap.
 
-**Architecture (auto-upload via Open Cloud, NOT manual):**
-- Roblox plugins are sandboxed (can't save files to disk), so manual upload is awkward
-  on the Roblox side. Auto-upload is actually CLEANER: the plugin already has the PNG
-  bytes in memory (from the fetched payload) and pushes them to Open Cloud over HTTP.
-- User supplies their OWN Open Cloud API key + Roblox user ID, stored LOCALLY in the
-  plugin via plugin:SetSetting (never sent to Bloxig's server — privacy + no liability).
-  Uploaded assets belong to the user's own account.
+**⚠️ ARCHITECTURE CHANGED MID-SESSION — READ THIS:**
+First attempt had the Roblox PLUGIN call Open Cloud directly. THAT FAILED in live test:
+`HttpService is not allowed to access that Roblox resource`. Roblox HARD-BLOCKS plugins
+from calling apis.roblox.com (only a few whitelisted Open Cloud endpoints work, only
+from game servers — NOT the Assets endpoint, NOT from plugins). Confirmed via Roblox's
+2025 announcement. So the upload was MOVED TO THE SERVER:
+  - Plugin POSTs { images, apiKey, userId } to OUR server (/api/upload-images)
+  - The SERVER (Node, no restriction) does the Open Cloud multipart upload + polling
+  - Server returns { imageName: "rbxassetid://id" }; plugin links by name.
+This is the CURRENT, working architecture. Do NOT move the upload back into the plugin.
 
-**Pipeline (imageName is the matching key through all 4 stages):**
+**Pipeline (imageName is the matching key through all stages):**
 1. code.ts `imageNameFor()` assigns stable unique name = `{cleanName}_{nodeId}` for
    nodes with an IMAGE fill or `.raster` tag (vectors NOT auto-rasterised — would bloat).
 2. code.ts `collectImages()` renders each via exportAsync (PNG, 2x) → base64 →
    `payload.images = { imageName: base64 }`.
-3. Server stores it (inside json_layout_data; api.js has a 14MB guard — MongoDB doc cap
-   is 16MB, fine for typical UIs, image-HEAVY designs could need splitting later).
+3. Server stores it (inside json_layout_data; api.js has a 14MB guard).
 4. Generator sets `Figblox_ImageName` attribute on each ImageLabel.
-5. ImageUploader.lua (NEW module) uploads each PNG to Open Cloud
-   (POST apis.roblox.com/assets/v1/assets, multipart, x-api-key), polls the operation,
-   checks moderation, resolves Decal→Image id, returns `{ imageName: "rbxassetid://id" }`.
+5. Plugin's ImageUploader.lua (now a THIN CLIENT) POSTs images+apiKey+userId to
+   /api/upload-images. routes/imageUpload.js does the actual Open Cloud upload
+   (multipart via Node global fetch/FormData/Blob), polls the operation, returns
+   { imageName: "rbxassetid://id" }.
 6. Generator.linkImages(container, map) matches Figblox_ImageName → map → sets inst.Image.
 
-**Files (all delivered + syntax-validated via lupa):**
+**Files (all delivered + validated):**
 - code.ts/code.js v1.4.0 — imageNameFor, collectImages, base64-bundled images.
 - api.js — 14MB payload size guard (returns 413 payload_too_large).
-- ImageUploader.lua — NEW; the Open Cloud upload engine. MUST sit in the same folder
-  as Generator/SmartMerge/ScaleConverter (require(script.Parent.ImageUploader)).
-- Main.lua v2.2.0 — added "Image Sync" fields (API key + user ID, stored locally) +
-  upload+link step in the confirm handler with progress status. Also set SERVER_URL to
-  https://bloxig.onrender.com (was localhost).
-- Generator.lua — already had Figblox_ImageName + linkImages; now also used by upload.
+- routes/imageUpload.js — NEW SERVER ROUTE; does the real Open Cloud upload. Node 18
+  has global fetch/FormData/Blob (no new deps). Mounted in server.js as
+  `app.use('/api', require('./routes/imageUpload'))` AFTER express.json.
+- ImageUploader.lua v2.0 — REWRITTEN as a thin server-client (was a full Open Cloud
+  uploader; that version can't work due to the HttpService block). Now just calls our
+  server. Lives in roblox-plugin/src/ alongside Generator/SmartMerge/ScaleConverter.
+- Main.lua v2.2.0 — "Image Sync" fields (API key + user ID, stored locally via
+  SetSetting) + upload+link step in confirm handler. SERVER_URL = bloxig.onrender.com.
+- server.js — express.json limit raised 10mb → 50mb (image payloads); imageUpload route
+  mounted.
 
-**CRITICAL base64 note:** the Lua base64 decoder in ImageUploader MUST use bit32
-integer math (not float 2^n shifting — that corrupts binary). Verified against real PNG
-bytes + all 256 byte values. Don't "simplify" it back to float math.
+**LIVE TEST RESULTS (this session):**
+- ✅ Architecture works: request now flows plugin → our server → Open Cloud. The old
+  "HttpService not allowed" error is GONE.
+- ❌ Last blocker = API KEY CONFIG (Roblox returns 401: "API key rejected"). This is a
+  DASHBOARD setup issue, not code. The key needs, at create.roblox.com/credentials:
+  (1) Assets API system ADDED with BOTH Read + Write, (2) NO IP restriction (or
+  0.0.0.0/0) — because requests now come from RENDER's IP, not the user's machine; an
+  IP restriction tied to home IP will reject, (3) userId must match the key's account.
+  → User was fixing the key when session paused. Once key is correct, re-test.
 
-**UNTESTED IN LIVE ROBLOX (verify on next test):**
-- Whether the Decal→Image resolution (InsertService) actually makes images DISPLAY, or
-  if the raw decal id works directly. If images upload but show blank, this is the spot.
-- Moderation timing — poller waits ~18s/image; slow moderation may report "failed" but
-  approve later (re-import links them).
-- Possible: HttpService multipart quirks against apis.roblox.com from Studio.
+**STILL UNVERIFIED (after key is fixed):**
+- Decal→Image resolution: Open Cloud upload returns a DECAL id, not an Image id.
+  imageUpload.js currently returns rbxassetid://<assetId> directly. If images upload OK
+  (no errors) but show BLANK, the decal-vs-image id is the cause — add resolution
+  (InsertService in-plugin, or fetch the image id) at that point.
+- Moderation timing (poller waits ~22s/image; slow moderation may report fail but
+  approve later).
+
+**STORAGE NOTE (do before scaling, NOT before testing):** base64 images are stored
+inline in json_layout_data → eats Atlas free tier (512MB ≈ ~250 image-heavy projects).
+Once upload works, strip/clear the base64 from the stored doc after upload (the asset
+lives on Roblox after that; only the rbxassetid is needed), OR move images to a separate
+TTL collection that auto-expires. Fine inline for testing + early users.
 
 **HOW THE USER USES IT:** fill API Key + Roblox User ID once → Preview → Confirm →
-images auto-upload + link. API key from Creator Dashboard → Open Cloud → API Keys →
-add `assets` read+write permission. User ID from their roblox.com/users/<ID>/profile URL.
+images auto-upload + link. API key: create.roblox.com/credentials → add Assets system →
+Read+Write → no IP restriction → copy key. User ID from roblox.com/users/<ID>/profile.
 
 **FUTURE (deferred, foundation reused):** gate auto-sync as an "Advanced" tier when
-more users (one-line subscription check); add keyless Figma-ZIP manual fallback;
-eventually OAuth one-click "Connect Roblox" (the headline investor feature).
+more users; keyless Figma-ZIP manual fallback; OAuth one-click "Connect Roblox".
 
 ## 🔐 PRODUCTION-READINESS — REALISTIC TRIAGE (not a single must-do list)
 A long enterprise checklist exists (injection, RBAC, TLS cert rotation, multi-tenancy,
@@ -571,19 +589,20 @@ you grow / as investors ask.
   days remaining), views/pages/dashboard.ejs (delete modal).
 
 ## 🚦 NEXT STEPS (priority order)
-1. **TEST image auto-upload in live Roblox** — built this session but NOT live-tested.
-   Verify: (a) images upload without auth errors, (b) they actually DISPLAY after linking
-   (the Decal→Image / InsertService resolution is the risky bit — if uploaded-but-blank,
-   that's the spot), (c) moderation timing is OK. Test with Shop UI (8 images), watch the
-   Output window for errors. Deploy: code.js→Figma, api.js→server (git push x2),
-   Main.lua + ImageUploader.lua (NEW) + Generator.lua → Roblox plugin folder.
-2. **Cheap security pass** (~1 day) — npm audit fix, input validation on /api/export
+1. **FIX API KEY + re-test image upload.** Architecture works (plugin→server→Open Cloud
+   confirmed live; old HttpService block GONE). Last blocker = Roblox returns 401 "API
+   key rejected". Fix at create.roblox.com/credentials: add Assets system w/ Read+Write,
+   NO IP restriction (requests come from Render's IP now, not user's machine), userId
+   must match the key's account. Then re-import Shop UI, watch Output. If uploads succeed
+   but images show BLANK → it's the Decal→Image id resolution (add it in imageUpload.js).
+2. **Strip inline base64 images after upload** — before scaling. Eats Atlas free tier
+   (512MB) otherwise. Once upload confirmed, clear images from stored doc post-upload.
+3. **Cheap security pass** (~1 day) — npm audit fix, input validation on /api/export
    + auth, confirm no repo secrets, rotate the exposed JWT, no stack-trace leaks.
-3. **Resolve Nepal payout** — ask Dodo support re: Nepal payout. Decide processor.
-4. **Build forgot-password** — last non-core feature (Resend HTTPS email already
-   designed; Render blocks SMTP so use Resend API, not Gmail SMTP).
-5. When payout solved → activate LS store (or switch to Dodo) → go live.
-6. (Optional) set Render branch to master to end two-branch pain (user declined so far).
+4. **Resolve Nepal payout** — ask Dodo support re: Nepal payout. Decide processor.
+5. **Build forgot-password** — last non-core feature (Resend HTTPS, not Gmail SMTP).
+6. When payout solved → activate LS store (or switch to Dodo) → go live.
+7. (Optional) set Render branch to master to end two-branch pain (user declined so far).
 
 ## ✅ CORE EXPORT ENGINE — STATUS: COMPLETE (pending image live-test)
 After this session the export covers the FULL fidelity chain: positions, nesting,

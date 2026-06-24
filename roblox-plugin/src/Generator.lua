@@ -559,12 +559,47 @@ end
 function Generator.linkImages(container, imageMap)
 	if not container or not imageMap then return 0 end
 
+	local InsertService = game:GetService("InsertService")
+	local resolveCache  = {}
+
+	-- Open Cloud uploads images as DECAL assets. ImageLabel.Image needs the
+	-- underlying IMAGE/texture id, NOT the decal wrapper id, or it renders BLANK.
+	-- InsertService can load the decal (plugin can load assets the user owns) and
+	-- expose its .Texture, which is the real content id we can assign.
+	local function resolveToTexture(assetRef)
+		local id = tostring(assetRef):match("%d+")
+		if not id then return assetRef end           -- already a content string, pass through
+		if resolveCache[id] then return resolveCache[id] end
+
+		local ok, model = pcall(function()
+			return InsertService:LoadAsset(tonumber(id))
+		end)
+		if ok and model then
+			local decal = model:FindFirstChildWhichIsA("Decal", true)
+			local tex   = decal and decal.Texture
+			model:Destroy()
+			if tex and tex ~= "" then
+				resolveCache[id] = tex
+				return tex
+			end
+		end
+
+		-- Fallback: a freshly uploaded asset can fail to load for a few seconds
+		-- until moderation clears. Use the rbxassetid form; the engine resolves
+		-- some decals lazily, and a re-run of Link Images will fix the rest.
+		local fallback = "rbxassetid://" .. id
+		resolveCache[id] = fallback
+		warn("[Bloxig] linkImages — could not resolve decal " .. id ..
+			" to a texture yet (moderation pending?); using fallback id.")
+		return fallback
+	end
+
 	local linked = 0
 	local function scan(inst)
 		local imageName = inst:GetAttribute("Figblox_ImageName")
 		if imageName and imageMap[imageName] then
 			if inst:IsA("ImageLabel") or inst:IsA("ImageButton") then
-				inst.Image = imageMap[imageName]
+				inst.Image = resolveToTexture(imageMap[imageName])
 				linked     = linked + 1
 				inst:SetAttribute("Figblox_ImageLinked", true)
 			end
@@ -592,6 +627,17 @@ function Generator.buildFromJSON(payload, container)
 	local frameH = math.max(1, payload.frame and payload.frame.height or 720)
 
 --//NEW UPDATED  FRAME ////------Recent cloud
+
+	-- Find or create the root frame (was previously referenced but never created,
+	-- which threw "attempt to index nil with 'Name'" if anything called this path).
+	local rootName = (payload.frame and payload.frame.name) or "BloxigRoot"
+	local rootFrame = container:FindFirstChild(rootName)
+	if not rootFrame then
+		rootFrame = Instance.new("Frame")
+		rootFrame.Parent = container
+	end
+	rootFrame:SetAttribute("Figblox_ID",   payload.frame and payload.frame.id or "root")
+	rootFrame:SetAttribute("Figblox_Root", true)
 
 	rootFrame.Name                   = (payload.frame and payload.frame.name or "BloxigRoot"):sub(1,100)
 	rootFrame.AnchorPoint            = Vector2.new(0.5, 0.5)

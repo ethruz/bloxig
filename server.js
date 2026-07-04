@@ -29,9 +29,16 @@ const app = express();
 // ── Trust Render proxy ────────────────────────────────────────
 app.set('trust proxy', 1);
 
+// Don't advertise the framework (applies even to cors preflight short-circuits)
+app.disable('x-powered-by');
+
 // ── CORS ──────────────────────────────────────────────────────
+// The plugins authenticate with a JWT in the Authorization header (not the
+// session cookie), so we never need credentials cross-origin. Keep this open
+// for the Bearer-token API, but NEVER pair origin:'*' with credentials:true.
 app.use(cors({
   origin: '*',
+  credentials: false,                         // explicit: no cookies cross-origin
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -103,8 +110,14 @@ app.use(express.urlencoded({ extended: false }));
 
 // ── Session ───────────────────────────────────────────────────
 const isProduction = process.env.NODE_ENV === 'production';
+
+// Never fall back to a hardcoded secret in production — fail loudly instead.
+if (isProduction && !process.env.SESSION_SECRET) {
+  throw new Error('SESSION_SECRET must be set in production.');
+}
+
 app.use(session({
-  secret:            process.env.SESSION_SECRET || 'fallback_secret_change_this',
+  secret:            process.env.SESSION_SECRET || 'dev_only_insecure_secret',
   resave:            false,
   saveUninitialized: false,
   store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI }),
@@ -112,7 +125,10 @@ app.use(session({
     maxAge:   1000 * 60 * 60 * 24 * 7, // 7 days
     httpOnly: true,
     secure:   isProduction,
-    sameSite: isProduction ? 'none' : 'lax'
+    // 'lax' closes CSRF: the cookie is no longer sent on cross-site requests.
+    // The plugins use JWT (Authorization header), not this cookie, so nothing
+    // legitimate needs it cross-site.
+    sameSite: 'lax'
   }
 }));
 

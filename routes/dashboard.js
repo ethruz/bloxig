@@ -5,6 +5,7 @@ const jwt     = require('jsonwebtoken');
 const { isAuthenticated } = require('../middleware/isAuthenticated');
 const Project = require('../models/Project');
 
+
 // GET /dashboard
 router.get('/', isAuthenticated, async (req, res) => {
   const projects = await Project.find({ owner: req.user._id }).sort({ updatedAt: -1 });
@@ -34,13 +35,14 @@ router.post('/projects/:id/delete', isAuthenticated, async (req, res) => {
   try {
     const result = await Project.findOneAndDelete({
       _id:   req.params.id,
-      owner: req.user._id     // critical: prevents deleting someone else's project
+      owner: req.user._id
     });
 
     if (!result) {
-      // Either the project doesn't exist or isn't owned by this user
       return res.status(404).json({ error: 'Project not found.' });
     }
+
+    await ProjectImages.deleteOne({ project: req.params.id });   // ← HERE, inside the handler
 
     return res.json({ success: true });
   } catch (err) {

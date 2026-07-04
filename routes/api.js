@@ -5,6 +5,7 @@ const router        = express.Router();
 const jwt           = require('jsonwebtoken');
 const { verifyJWT } = require('../middleware/isAuthenticated');
 const Project       = require('../models/Project');
+const ProjectImages = require('../models/ProjectImages');
 
 // ── POST /api/export ──────────────────────────────────────────
 // Called by Figma Plugin. Saves JSON layout to a Project.
@@ -56,6 +57,18 @@ router.post('/export', verifyJWT, async (req, res) => {
       }
     }
 
+    // ── Split base64 images out of the layout ────────────────────
+    // json_layout_data.images is ~99% of the payload (e.g. 5.3MB vs 24KB of
+    // real layout). Store it in a separate ProjectImages doc so the layout
+    // stays tiny and reads stay fast. It's re-attached on import, so the
+    // Roblox plugin sees byte-for-byte identical data.
+    const incomingImages = (json_layout_data && typeof json_layout_data.images === 'object' && json_layout_data.images !== null)
+      ? json_layout_data.images
+      : null;
+
+    const slimLayout = { ...json_layout_data };
+    delete slimLayout.images;
+
     // Update the existing frame's project, or create a new one.
     const project = await Project.findOneAndUpdate(
       { owner: req.user._id, figma_frame_id },
@@ -63,11 +76,23 @@ router.post('/export', verifyJWT, async (req, res) => {
         name: name || 'Untitled',
         figma_file_id: figma_file_id || 'local',
         figma_frame_id,
-        json_layout_data,
+        json_layout_data: slimLayout,
         updatedAt: new Date()
       },
       { new: true, upsert: true }
     );
+
+    // Persist the images blob alongside the project (or clear it if none).
+    const hasImages = incomingImages && Object.keys(incomingImages).length > 0;
+    if (hasImages) {
+      await ProjectImages.findOneAndUpdate(
+        { project: project._id },
+        { project: project._id, images: incomingImages },
+        { upsert: true }
+      );
+    } else {
+      await ProjectImages.deleteOne({ project: project._id });
+    }
 
     res.json({ success: true, project_id: project._id });
   } catch (err) {
@@ -87,7 +112,17 @@ router.get('/import/:id', verifyJWT, async (req, res) => {
 
     if (!project) return res.status(404).json({ error: 'Project not found.' });
 
-    res.json({ success: true, json_layout_data: project.json_layout_data });
+    // Re-attach the base64 images that were split into ProjectImages.
+    // Backward compat: OLD projects still have images inline in json_layout_data
+    // — for those, layout.images is already present, so we skip the lookup and
+    // return them untouched. Either way, the plugin receives identical data.
+    const layout = { ...(project.json_layout_data || {}) };
+    if (!layout.images) {
+      const imgDoc = await ProjectImages.findOne({ project: project._id });
+      if (imgDoc && imgDoc.images) layout.images = imgDoc.images;
+    }
+
+    res.json({ success: true, json_layout_data: layout });
 
   } catch (err) {
     console.error('[API] Import error:', err);

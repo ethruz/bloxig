@@ -228,7 +228,9 @@ function fetchToken(e) {
       }
     })
     .catch(() => {
-      displayElement.textContent = 'Use POST /api/token with your email+password';
+      displayElement.textContent = '••••••••••••••••••••';
+      btn.textContent = 'Reveal';
+      if (window.showToast) window.showToast('Could not fetch token. Please try again.', 'error');
     });
 }
 
@@ -293,6 +295,9 @@ function copyToClipboard(text, btn) {
   </div>
 </div>
 
+<!-- Toast notifications (on-brand replacement for native alerts) -->
+<div id="toastHost" style="position:fixed;bottom:24px;right:24px;z-index:1100;display:flex;flex-direction:column;gap:10px;align-items:flex-end;pointer-events:none;"></div>
+
 <style>
   @keyframes modalIn {
     from { opacity:0; transform:translateY(8px) scale(0.98); }
@@ -300,6 +305,26 @@ function copyToClipboard(text, btn) {
   }
   #deleteConfirm:hover { filter:brightness(1.08); }
   #deleteConfirm:disabled { opacity:0.6; cursor:not-allowed; }
+
+  @keyframes toastIn  { from { opacity:0; transform:translateX(12px); } to { opacity:1; transform:translateX(0); } }
+  @keyframes toastOut { from { opacity:1; transform:translateX(0); }   to { opacity:0; transform:translateX(12px); } }
+  .toast {
+    display:flex;align-items:center;gap:10px;
+    min-width:220px;max-width:340px;
+    padding:12px 14px;
+    background:var(--bg-elevated);
+    border:1px solid var(--border-base);
+    border-radius:var(--r-md);
+    box-shadow:0 10px 32px rgba(0,0,0,0.45);
+    font-size:var(--text-sm);color:var(--text-secondary);
+    animation:toastIn 180ms var(--ease);
+    pointer-events:auto;
+  }
+  .toast--error   { border-left:2px solid var(--danger); }
+  .toast--success { border-left:2px solid var(--success); }
+  .toast__dot { width:8px;height:8px;border-radius:50%;flex-shrink:0; }
+  .toast--error   .toast__dot { background:var(--danger); }
+  .toast--success .toast__dot { background:var(--success); }
 </style>
 
 <script>
@@ -309,6 +334,21 @@ function copyToClipboard(text, btn) {
   var cancelBtn   = document.getElementById('deleteCancel');
   var confirmBtn  = document.getElementById('deleteConfirm');
   var pendingId   = null;
+
+  // On-brand toast (replaces native alert) — exposed on window for other scripts
+  window.showToast = function(message, type){
+    var host = document.getElementById('toastHost');
+    if (!host) return;
+    var t = document.createElement('div');
+    t.className = 'toast toast--' + (type === 'success' ? 'success' : 'error');
+    t.innerHTML = '<span class="toast__dot"></span><span></span>';
+    t.querySelector('span:last-child').textContent = message;
+    host.appendChild(t);
+    setTimeout(function(){
+      t.style.animation = 'toastOut 180ms var(--ease) forwards';
+      setTimeout(function(){ t.remove(); }, 200);
+    }, 3200);
+  }
 
   // Called by each card's trash button
   window.deleteProject = function(id, name){
@@ -342,20 +382,19 @@ function copyToClipboard(text, btn) {
       var data = await res.json();
       if (res.ok && data.success) {
         var card = document.getElementById('project-' + pendingId);
+        showToast('Project deleted.', 'success');
         if (card) {
           card.style.transition = 'opacity 200ms';
           card.style.opacity = '0';
         }
-        setTimeout(function(){ location.reload(); }, 220);
+        setTimeout(function(){ location.reload(); }, 320);
       } else {
-        alert(data.error || 'Failed to delete project.');
-        confirmBtn.disabled = false;
-        confirmBtn.textContent = 'Delete';
+        closeModal();
+        showToast(data.error || 'Failed to delete project.', 'error');
       }
     } catch (e) {
-      alert('Failed to delete project. Please try again.');
-      confirmBtn.disabled = false;
-      confirmBtn.textContent = 'Delete';
+      closeModal();
+      showToast('Failed to delete project. Please try again.', 'error');
     }
   });
 })();

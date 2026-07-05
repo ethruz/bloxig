@@ -4,6 +4,7 @@ const router  = express.Router();
 const jwt     = require('jsonwebtoken');
 const { isAuthenticated } = require('../middleware/isAuthenticated');
 const Project = require('../models/Project');
+const ProjectImages = require('../models/ProjectImages');
 
 
 // GET /dashboard
@@ -42,7 +43,7 @@ router.post('/projects/:id/delete', isAuthenticated, async (req, res) => {
       return res.status(404).json({ error: 'Project not found.' });
     }
 
-    await ProjectImages.deleteOne({ project: req.params.id });   // ← HERE, inside the handler
+    await ProjectImages.deleteOne({ project: req.params.id });
 
     return res.json({ success: true });
   } catch (err) {

@@ -71,6 +71,7 @@ local VALID_PREFIXES = {
 	scrollv     = true,
 	scrollh     = true,
 	canvas      = true,
+	grid        = true,
 	raster      = true,
 	input       = true,
 	viewport    = true,
@@ -297,10 +298,23 @@ local function applyStroke(inst, node, frameW)
 	stroke.Thickness       = math.max(0.5, scaled)
 	stroke.LineJoinMode    = Enum.LineJoinMode.Round
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	if s.color then
+
+	-- Clear any prior gradient so re-imports don't stack duplicates on the stroke.
+	local oldStrokeGrad = stroke:FindFirstChildOfClass("UIGradient")
+	if oldStrokeGrad then oldStrokeGrad:Destroy() end
+
+	if s.gradientStops and #s.gradientStops > 0 then
+		-- GRADIENT stroke: Roblox renders a UIGradient parented to the UIStroke.
+		-- White base so the gradient's own colors show true (not tinted).
+		stroke.Color        = Color3.new(1, 1, 1)
+		stroke.Transparency = 0
+		applyGradient(stroke, s)   -- reuses the fill gradient builder; parents to the stroke
+	elseif s.color then
+		-- SOLID stroke.
 		stroke.Color        = toColor3(s.color)
-		stroke.Transparency = math.clamp(1-(s.color.a or 1), 0, 1)
+		stroke.Transparency = math.clamp(1 - (s.color.a or 1), 0, 1)
 	end
+
 	stroke.Parent = inst
 end
 
@@ -356,6 +370,43 @@ local function injectIdentity(inst, node)
 	end
 end
 
+-- ── Auto-grid: add a UIGridLayout to a scroll/grid container, sizing the
+--    cell from the first child and the padding from the gap between the first
+--    two children. Positions of children are then SKIPPED (grid flows them),
+--    so runtime-cloned cards lay out automatically. This is the ONE place we
+--    intentionally override pixel positions (a reflowing grid needs it).
+local function applyAutoGrid(inst, node)
+	local kids = node.children
+	if not kids or #kids < 2 then return false end
+
+	-- Cell size from the first child's pixel dims.
+	local first = kids[1]
+	local cw = math.max(1, first.width  or 100)
+	local ch = math.max(1, first.height or 100)
+
+	-- Padding from the gap between child 1 and child 2 (row or column).
+	local second = kids[2]
+	local padX, padY = 0, 0
+	if first.x and second.x and first.y and second.y then
+		local dx = math.abs((second.x or 0) - (first.x or 0))
+		local dy = math.abs((second.y or 0) - (first.y or 0))
+		-- horizontal neighbour -> gap is dx - cellW ; vertical -> dy - cellH
+		if dx >= dy then
+			padX = math.max(0, dx - cw)
+		else
+			padY = math.max(0, dy - ch)
+		end
+	end
+
+	local grid = Instance.new("UIGridLayout")
+	grid.CellSize    = UDim2.new(0, cw, 0, ch)
+	grid.CellPadding = UDim2.new(0, padX, 0, padY)
+	grid.SortOrder   = Enum.SortOrder.LayoutOrder
+	grid.FillDirectionMaxCells = 0   -- wrap by container width
+	grid.Parent = inst
+	return true
+end
+
 -- ════════════════════════════════════════════════════════════════
 -- CORE: createInstance
 -- Now uses prefix table to decide class instead of guessing
@@ -368,6 +419,17 @@ function Generator.createInstance(node, parent, frameW, frameH)
 
 	-- ── Parse prefixes ────────────────────────────────────────
 	local prefixes = parsePrefixes(node)
+
+	-- Grid intent: explicit .grid, or a scroll container with 2+ children.
+	-- (Auto so the user never has to tag it — matches the tool's automation goal.)
+	local isGrid = prefixes.grid == true
+	if not isGrid and (prefixes.scrollv or prefixes.scrollh)
+	   and node.children and #node.children >= 2 then
+		isGrid = true
+	end
+	if prefixes.grid and not prefixes.scrollv and not prefixes.scrollh then
+		prefixes.scrollv = true   -- a bare .grid scrolls vertically by default
+	end
 
 	-- Skip nodes tagged .ignore
 	if prefixes.ignore then
@@ -513,7 +575,14 @@ function Generator.createInstance(node, parent, frameW, frameH)
 	inst.Visible     = node.visible ~= false
 	inst.ZIndex      = math.clamp(node.zIndex or 1, 1, 100)
 	inst.AnchorPoint = Vector2.new(0, 0)
-	inst.Position    = safePosition(node, parent, frameW, frameH)
+	-- If the parent is an auto-grid, DON'T set Position — UIGridLayout flows
+	-- children by LayoutOrder. Setting Position would fight the layout.
+	local parentIsGrid = parent and parent:GetAttribute("Bloxig_Grid") == true
+	if parentIsGrid then
+		inst.LayoutOrder = (node.zIndex or 1)
+	else
+		inst.Position = safePosition(node, parent, frameW, frameH)
+	end
 	inst.Size        = safeSize(node, parent, frameW, frameH)
 
 	if node.rotation and node.rotation ~= 0 then
@@ -529,6 +598,12 @@ function Generator.createInstance(node, parent, frameW, frameH)
 
 	-- ── Identity ──────────────────────────────────────────────
 	injectIdentity(inst, node)
+
+	-- ── Auto-grid layout (before children so they flow into it) ───
+	if isGrid and (inst:IsA("ScrollingFrame") or inst:IsA("Frame")) then
+		applyAutoGrid(inst, node)
+		inst:SetAttribute("Bloxig_Grid", true)
+	end
 
 	-- ── Parent LAST ───────────────────────────────────────────
 	inst.Parent = parent
@@ -735,7 +810,16 @@ function Generator.updateInstance(inst, node, parent, frameW, frameH)
 		local stroke = inst:FindFirstChildOfClass("UIStroke")
 		if not stroke then stroke = Instance.new("UIStroke"); stroke.Parent = inst end
 		stroke.Thickness = math.max(0, node.strokeWeight or 1)
-		if s.color then
+
+		-- Clear any prior gradient so re-imports don't stack duplicates.
+		local oldStrokeGrad = stroke:FindFirstChildOfClass("UIGradient")
+		if oldStrokeGrad then oldStrokeGrad:Destroy() end
+
+		if s.gradientStops and #s.gradientStops > 0 then
+			stroke.Color        = Color3.new(1, 1, 1)   -- white base so gradient shows true
+			stroke.Transparency = 0
+			applyGradient(stroke, s)                     -- gradient stroke (UIGradient child)
+		elseif s.color then
 			stroke.Color        = toColor3(s.color)
 			stroke.Transparency = math.clamp(1-(s.color.a or 1), 0, 1)
 		end

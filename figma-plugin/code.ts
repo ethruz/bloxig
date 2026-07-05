@@ -228,6 +228,7 @@ async function handleExport(token: string) {
   }
 
   const node = selection[0];
+  __exportRootId = node.id;   // mark root so it is never rasterized
 
   const validTypes = ['FRAME','COMPONENT','COMPONENT_SET','SECTION','GROUP'];
   if (validTypes.indexOf(node.type) === -1) {
@@ -383,6 +384,33 @@ async function collectImages(
   const parsed = parseLayerName(node.name);
   if (parsed.isIgnored) return;
 
+  // ── AUTO-RASTERIZE bake path (must match serialiseNode's decision) ──────
+  if (shouldRasterizeGroup(node as any, parsed, false)) {
+    const imgName = sanitiseForName(parsed.cleanName) + '_' + sanitiseForName(node.id);
+    if (!out[imgName]) {
+      // Hide native-safe text so it isn't drawn into the PNG (it's emitted as a
+      // real TextLabel on top). ALWAYS restore visibility in finally so the
+      // user's Figma file is never left damaged.
+      const toHide: any[] = [];
+      collectNativeSafeTextNodes(node as any, node as any, toHide);
+      const saved = toHide.map((t) => ({ t, v: t.visible }));
+      try {
+        for (const s of saved) s.t.visible = false;
+        const bytes = await (node as any).exportAsync({
+          format: 'PNG',
+          constraint: { type: 'SCALE', value: 2 }
+        });
+        out[imgName] = figma.base64Encode(bytes);
+      } catch (e) {
+        // skip this image; non-fatal
+      } finally {
+        for (const s of saved) s.t.visible = s.v;
+      }
+    }
+    return;   // baked — do NOT recurse; children live in the PNG
+  }
+
+  // ── Normal path: per-node image fills / explicit .raster leaves ─────────
   const imgName = imageNameFor(node, parsed);
   if (imgName && !out[imgName]) {
     try {
@@ -443,9 +471,14 @@ function normalizePaint(paint: any): NormFill | null {
 
   if (paint.type === 'SOLID') {
     const c = paint.color || { r: 1, g: 1, b: 1 };
+    // Figma stores transparency in TWO places: paint.opacity AND color.a.
+    // Multiply both (matching the gradient branch below). Using opacity alone
+    // dropped translucent strokes' alpha, making glassmorphism borders render
+    // as hard opaque (black) outlines.
+    const colorA = c.a == null ? 1 : c.a;
     return {
       type: 'SOLID',
-      color: { r: c.r, g: c.g, b: c.b, a: opacity }   // fold opacity into alpha
+      color: { r: c.r, g: c.g, b: c.b, a: colorA * opacity }
     };
   }
 
@@ -517,6 +550,229 @@ function imageNameFor(node: SceneNode, parsed: ParsedName): string | null {
   return null;
 }
 
+// Tracks the root node of the in-progress export so the root frame itself
+// is never rasterized (we must never bake the whole UI into one PNG).
+let __exportRootId: string | null = null;
+
+// ============================================================
+// AUTO-RASTERIZE HELPERS (v1.4)
+// Bake decorative/effect-heavy groups to ONE PNG; keep structural
+// /interactive groups native; pull functional text out as editable
+// TextLabels, leave stylized text baked into the art.
+// ============================================================
+
+const RASTER_VECTOR_THRESHOLD = 4;   // tune: how many vector-ish children = "art"
+
+const VECTORISH = ['VECTOR','ELLIPSE','STAR','POLYGON','BOOLEAN_OPERATION','LINE'];
+const CONTAINER = ['GROUP','FRAME','COMPONENT','INSTANCE','COMPONENT_SET','SECTION'];
+
+function isContainer(node: any): boolean {
+  return CONTAINER.indexOf(node.type) !== -1;
+}
+
+function hasVisibleEffects(node: any): boolean {
+  return Array.isArray(node.effects)
+    && node.effects.some((e: any) => e && e.visible !== false);
+}
+
+// Recursively: does any node in the subtree carry a non-linear gradient,
+// a blend mode, or count toward "vector soup"? One pass, returns the tallies.
+function scanSubtree(node: any, acc: { vec: number; nonLinear: boolean; blend: boolean }) {
+  if (node.visible === false) return;
+
+  if (VECTORISH.indexOf(node.type) !== -1) acc.vec++;
+
+  const fills = node.fills;
+  if (Array.isArray(fills)) {
+    for (const f of fills) {
+      if (!f || f.visible === false) continue;
+      if (f.type === 'GRADIENT_RADIAL' || f.type === 'GRADIENT_ANGULAR' || f.type === 'GRADIENT_DIAMOND') {
+        acc.nonLinear = true;
+      }
+    }
+  }
+  if (node.blendMode && node.blendMode !== 'NORMAL' && node.blendMode !== 'PASS_THROUGH') {
+    acc.blend = true;
+  }
+
+  if ('children' in node) {
+    for (const c of node.children) scanSubtree(c, acc);
+  }
+}
+
+// Does this subtree contain interactive / data-bearing structure that must stay
+// native? Buttons, inputs, or a repeated grid of frames each holding TEXT (cards).
+// If so, we must NOT bake the whole container — descend and bake the small
+// decorative pieces (glows, textures) deeper instead.
+// Auto-grid detection: a container with 2+ similar card-frames (each holding
+// text) is a reflowing grid. We tag it 'grid' so the Generator builds a
+// ScrollingFrame + UIGridLayout automatically — no manual .scrollv needed.
+function looksLikeGrid(node: any): boolean {
+  if (!('children' in node) || !node.children) return false;
+  let cardFrames = 0;
+  let otherChildren = 0;
+  let firstW = -1, firstH = -1, uniform = true;
+  for (const c of node.children) {
+    if (c.visible === false) continue;          // hidden children don't count
+    const isCard = (c.type === 'FRAME' || c.type === 'COMPONENT' || c.type === 'INSTANCE')
+        && (c.children || []).some((g: any) => g.type === 'TEXT');
+    if (isCard) {
+      cardFrames++;
+      const w = c.width || 0, h = c.height || 0;
+      if (firstW < 0) { firstW = w; firstH = h; }
+      else if (Math.abs(w - firstW) > 4 || Math.abs(h - firstH) > 4) uniform = false;
+    } else {
+      otherChildren++;                          // header, close button, description panel, etc.
+    }
+  }
+  // Only auto-grid a PURE grid: 2+ uniform cards AND no non-card siblings.
+  // A mixed container (cards + a title / close button / description) must NOT be
+  // gridded — UIGridLayout ignores Position and flows EVERY child, which would
+  // scramble the non-card elements. Mixed containers keep their absolute
+  // positions (accurate to Figma). Power users can still force a grid by naming
+  // a dedicated card-only frame `.scrollv`.
+  return cardFrames >= 2 && uniform && otherChildren === 0;
+}
+
+function subtreeHasStructure(node: any): boolean {
+  // Count DIRECT children that look like repeated "cards": frames each holding text.
+  // 2+ of them => a grid/list => keep the container native (bake the cards deeper).
+  let cardFrames = 0;
+  for (const c of (node.children || [])) {
+    if ((c.type === 'FRAME' || c.type === 'COMPONENT' || c.type === 'INSTANCE')
+        && (c.children || []).some((g: any) => g.type === 'TEXT')) {
+      cardFrames++;
+    }
+    // explicit interactive prefixes anywhere among direct children => keep native
+    const cp = parseLayerName(c.name);
+    if (cp.prefixes.indexOf('scrollv') !== -1 || cp.prefixes.indexOf('scrollh') !== -1 ||
+        cp.prefixes.indexOf('canvas')  !== -1) {
+      return true;
+    }
+  }
+  return cardFrames >= 2;
+}
+
+// Name-based button signal: layers literally called "...Button", "...Tab", "X", "Close", etc.
+// These are clickable, decorative, and should bake AS an ImageButton (art baked, text native).
+function nameLooksLikeButton(name: string): boolean {
+  const s = (name || '').toLowerCase();
+  return /\b(button|btn|tab|close|cross)\b/.test(s) || s.trim() === 'x';
+}
+
+// Is this container a BUTTON (single clickable unit) rather than a GRID/LIST?
+// Button  = has decoration/effects + at most a little text, NO nested card-frames.
+// Grid    = contains 2+ sibling frames that each hold text (the cards) -> NOT a button.
+function looksLikeButton(node: any, parsed: ParsedName): boolean {
+  if (parsed.prefixes.indexOf('imagebutton') !== -1 || parsed.prefixes.indexOf('textbutton') !== -1) return true;
+  if (!isContainer(node)) return false;
+  if (nameLooksLikeButton(parsed.cleanName) || nameLooksLikeButton(node.name)) {
+    // make sure it's not actually a grid container that happens to be named "...Buttons"
+    let cardFrames = 0;
+    for (const c of (node.children || [])) {
+      if ((c.type === 'FRAME' || c.type === 'COMPONENT' || c.type === 'INSTANCE')
+          && (c.children || []).some((g: any) => g.type === 'TEXT')) cardFrames++;
+    }
+    return cardFrames < 2;
+  }
+  return false;
+}
+
+// THE decision. serialiseNode AND collectImages must both call THIS one function,
+// or the JSON and the PNGs disagree. Single source of truth.
+function shouldRasterizeGroup(node: any, parsed: ParsedName, _ignored?: boolean): boolean {
+  // manual overrides win
+  if (parsed.prefixes.indexOf('native') !== -1 || parsed.prefixes.indexOf('keep') !== -1) return false;
+  if (parsed.prefixes.indexOf('raster') !== -1 || parsed.prefixes.indexOf('bake')  !== -1) return true;
+
+  if (!isContainer(node)) return false;
+  if (node.id === __exportRootId) return false;   // never bake the export root (whole UI)
+
+  // Scroll/canvas containers are NEVER baked (they must stay live ScrollingFrames).
+  if (parsed.prefixes.indexOf('scrollv') !== -1 || parsed.prefixes.indexOf('scrollh') !== -1 ||
+      parsed.prefixes.indexOf('canvas')  !== -1) return false;
+
+  // A single labeled button bakes (art -> PNG, text extracted), regardless of size/effects.
+  if (looksLikeButton(node, parsed)) return true;
+
+  if (subtreeHasStructure(node)) return false;    // a real grid/list -> stay native, bake deeper
+
+  if (hasVisibleEffects(node)) return true;       // glow / shadow / blur on the group
+
+  const acc = { vec: 0, nonLinear: false, blend: false };
+  scanSubtree(node, acc);
+  if (acc.nonLinear) return true;                 // radial/angular/diamond gradient
+  if (acc.blend) return true;                     // multiply/screen/etc
+  if (acc.vec >= RASTER_VECTOR_THRESHOLD) return true;  // vector soup
+
+  return false;
+}
+
+// Text classification: can Roblox render this text faithfully as a TextLabel?
+function textIsNativeSafe(t: any): boolean {
+  const fills = t.fills;
+  const plainFill = Array.isArray(fills) && fills.length === 1
+                    && fills[0] && fills[0].type === 'SOLID' && fills[0].visible !== false;
+  const noEffects   = !t.effects || t.effects.every((e: any) => !e || e.visible === false);
+  const noRotation  = Math.abs(t.rotation || 0) < 0.5;
+  const normalBlend = !t.blendMode || t.blendMode === 'NORMAL' || t.blendMode === 'PASS_THROUGH';
+  const plainStroke = !t.strokes || t.strokes.length === 0 || (t.strokes[0] && t.strokes[0].type === 'SOLID');
+  return plainFill && noEffects && noRotation && normalBlend && plainStroke;
+}
+
+// Build BloxigNode TextLabels for native-safe text, positioned relative to the
+// baking group's top-left (so they overlay the PNG correctly).
+function collectNativeSafeText(node: any, root: any, out: BloxigNode[]): void {
+  if (node.visible === false) return;
+
+  if (node.type === 'TEXT') {
+    const p = parseLayerName(node.name);
+    const forceKeep = p.prefixes.indexOf('keep') !== -1 || p.prefixes.indexOf('native') !== -1;
+    const forceBake = p.prefixes.indexOf('bake') !== -1 || p.prefixes.indexOf('raster') !== -1;
+    if (!forceBake && (forceKeep || textIsNativeSafe(node))) {
+      const ra = root.absoluteBoundingBox, na = node.absoluteBoundingBox;
+      const rx = ra && typeof ra.x === 'number' ? ra.x : 0;
+      const ry = ra && typeof ra.y === 'number' ? ra.y : 0;
+      const nx = na && typeof na.x === 'number' ? na.x : rx;
+      const ny = na && typeof na.y === 'number' ? na.y : ry;
+      out.push({
+        id: node.id, name: p.cleanName, rawName: p.rawName, type: 'TEXT',
+        x: nx - rx, y: ny - ry,
+        width: node.width ?? 0, height: node.height ?? 0,
+        visible: true, opacity: node.opacity ?? 1, rotation: node.rotation ?? 0,
+        fills: normalizePaints(node.fills) as any,
+        strokes: normalizePaints(node.strokes) as any,
+        strokeWeight: node.strokeWeight ?? 0,
+        characters: node.characters,
+        fontSize: node.fontSize, fontName: node.fontName,
+        textAlignHorizontal: node.textAlignHorizontal,
+        textAlignVertical: node.textAlignVertical,
+        children: []
+      });
+    }
+    return;
+  }
+
+  if ('children' in node) {
+    for (const c of node.children) collectNativeSafeText(c, root, out);
+  }
+}
+
+// The actual TextNode refs to hide before baking (so they aren't drawn twice).
+function collectNativeSafeTextNodes(node: any, root: any, out: any[]): void {
+  if (node.visible === false) return;
+  if (node.type === 'TEXT') {
+    const p = parseLayerName(node.name);
+    const forceKeep = p.prefixes.indexOf('keep') !== -1 || p.prefixes.indexOf('native') !== -1;
+    const forceBake = p.prefixes.indexOf('bake') !== -1 || p.prefixes.indexOf('raster') !== -1;
+    if (!forceBake && (forceKeep || textIsNativeSafe(node))) out.push(node);
+    return;
+  }
+  if ('children' in node) {
+    for (const c of node.children) collectNativeSafeTextNodes(c, root, out);
+  }
+}
+
 // -- Node serialiser -------------------------------------------
 // Returns null when the node is tagged .ignore (so it is skipped).
 function serialiseNode(node: SceneNode, parentAbsX: number, parentAbsY: number): BloxigNode | null {
@@ -568,12 +824,43 @@ function serialiseNode(node: SceneNode, parentAbsX: number, parentAbsY: number):
     base.prefixes = parsed.prefixes;
   }
 
+  // Auto-tag reflowing card grids so the Generator makes a ScrollingFrame+UIGridLayout.
+  if (looksLikeGrid(node)) {
+    const pfx = base.prefixes ? base.prefixes.slice() : [];
+    if (pfx.indexOf('grid') === -1) pfx.push('grid');
+    base.prefixes = pfx;
+  }
+
+
   // Image node? Assign a stable imageName so the Roblox linker can match the
   // uploaded PNG to this ImageLabel. (PNG bytes are collected separately.)
   const imgName = imageNameFor(node, parsed);
   if (imgName) {
     base.imageName = imgName;
     base.isRaster  = parsed.prefixes.indexOf('raster') !== -1 || undefined;
+  }
+
+  // ── AUTO-RASTERIZE: bake decorative/effect-heavy groups to one PNG ──────
+  // shouldRasterizeGroup is the SINGLE source of truth (collectImages calls
+  // the same fn). When baking: emit this node as an image, attach ONLY the
+  // pulled-out native-safe text as children, and DO NOT recurse into the real
+  // children — they live inside the PNG.
+  if (shouldRasterizeGroup(node, parsed, false)) {
+    base.imageName = base.imageName
+      || (sanitiseForName(parsed.cleanName) + '_' + sanitiseForName(node.id));
+    base.isRaster  = true;
+
+    // Baked buttons become ImageButtons (clickable), not ImageLabels.
+    if (looksLikeButton(node, parsed)) {
+      const pfx = base.prefixes ? base.prefixes.slice() : [];
+      if (pfx.indexOf('imagebutton') === -1) pfx.push('imagebutton');
+      base.prefixes = pfx;
+    }
+
+    const keptText: BloxigNode[] = [];
+    collectNativeSafeText(node, node, keptText);
+    base.children = keptText;
+    return base;   // stop here — children are baked into the image
   }
 
   // Clipping — Figma frames clip their content by default. Export it so the

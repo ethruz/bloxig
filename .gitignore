@@ -2,3 +2,4 @@ node_modules/
 .env
 .DS_Store
 *.log
+anime2_raw.json # keep the dumped JSON out of git

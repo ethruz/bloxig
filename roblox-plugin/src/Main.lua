@@ -374,10 +374,59 @@ local function buildUI()
 		task.spawn(function()
 			local container = getTargetContainer()
 
-			-- ✅ FIX 3: Mark undo waypoint BEFORE changes
+			-- ════════════════════════════════════════════════════════
+			-- ✅ NEW ORDER (no broken-then-fixed flash):
+			--   1. Upload images FIRST (get name -> rbxassetid map)
+			--   2. THEN SmartMerge.apply (build the UI)
+			--   3. THEN linkImages (UI already has assets ready)
+			--   4. THEN tool chain (lock text/stroke)
+			-- Previously apply ran first, so the user watched the UI
+			-- appear with empty image slots, then churn, then fix itself.
+			-- ════════════════════════════════════════════════════════
+
+			-- ── STEP 1: upload images BEFORE building anything ────────
+			local imageMap  = nil
+			local imageMsg  = ""
+			local imgErrors = nil
+			local images    = pendingPayload.images
+			local hasImages = false
+			if images then
+				for _ in pairs(images) do hasImages = true break end
+			end
+
+			if hasImages then
+				local apiKey = apiKeyBox.Text
+				local userId = userIdBox.Text
+				if apiKey ~= "" and userId ~= "" then
+					setStatus("Uploading images first... (this can take a minute)",
+						Color3.fromRGB(79,123,247))
+
+					local okUp = pcall(function()
+						imageMap, imgErrors = ImageUploader.uploadAll(
+							images, apiKey, userId, SERVER_URL, token,
+							function(stage)
+								setStatus("Images: " .. stage, Color3.fromRGB(79,123,247))
+							end
+						)
+					end)
+					if not okUp then
+						-- Non-fatal: continue the import without images rather
+						-- than aborting; user still gets the structure.
+						imageMap = nil
+						warn("[Bloxig] Image upload threw; importing without images.")
+					end
+				else
+					imageMsg = "\n  Images: " .. (function()
+						local n = 0; for _ in pairs(images) do n = n + 1 end; return n
+					end)() .. " found — add API key + user ID to auto-upload"
+				end
+			end
+
+			-- ✅ Mark undo waypoint BEFORE the scene changes
 			ChangeHistory:SetWaypoint("Bloxig Import Start")
 
-			-- ✅ FIX 1: Single apply call — stats captured correctly
+			-- ── STEP 2: build the UI (single apply) ───────────────────
+			setStatus("Importing...", Color3.fromRGB(79,123,247))
 			local stats, applyErr
 			local ok = pcall(function()
 				stats = SmartMerge.apply(pendingPayload, container)
@@ -390,49 +439,22 @@ local function buildUI()
 				return
 			end
 
-			-- ✅ FIX 2: Run tool chain — Lock Text + Lock Stroke
-			local locked = runToolChain(container, pendingPayload, stats)
-
-			-- ── Image auto-sync ───────────────────────────────────
-			-- If the payload bundled images AND the user gave Open Cloud
-			-- creds, upload each PNG to their account and link by name.
-			local imageMsg = ""
-			local images   = pendingPayload.images
-			local hasImages = false
-			if images then
-				for _ in pairs(images) do hasImages = true break end
-			end
-
-			if hasImages then
-				local apiKey = apiKeyBox.Text
-				local userId = userIdBox.Text
-				if apiKey ~= "" and userId ~= "" then
-					setStatus("Uploading images... (this can take a minute)",
-						Color3.fromRGB(79,123,247))
-
-					local imageMap, errors = ImageUploader.uploadAll(
-						images, apiKey, userId, SERVER_URL, token,
-						function(stage)
-							setStatus("Images: " .. stage, Color3.fromRGB(79,123,247))
-						end
-					)
-
-					local linkedCount = Generator.linkImages(container, imageMap)
-					local errCount = errors and #errors or 0
-					imageMsg = "\n  Images linked: " .. linkedCount
-					if errCount > 0 then
-						imageMsg = imageMsg .. "  (" .. errCount .. " failed)"
-						warn("[Bloxig] Image upload errors:")
-						for _, e in ipairs(errors) do warn("  - " .. e) end
-					end
-				else
-					imageMsg = "\n  Images: " .. (function()
-						local n = 0; for _ in pairs(images) do n = n + 1 end; return n
-					end)() .. " found — add API key + user ID to auto-upload"
+			-- ── STEP 3: link the already-uploaded images ──────────────
+			if imageMap then
+				local linkedCount = Generator.linkImages(container, imageMap)
+				local errCount = imgErrors and #imgErrors or 0
+				imageMsg = "\n  Images linked: " .. linkedCount
+				if errCount > 0 then
+					imageMsg = imageMsg .. "  (" .. errCount .. " failed)"
+					warn("[Bloxig] Image upload errors:")
+					for _, e in ipairs(imgErrors) do warn("  - " .. e) end
 				end
 			end
 
-			-- ✅ FIX 3: Mark undo waypoint AFTER all changes
+			-- ── STEP 4: tool chain — Lock Text + Lock Stroke ──────────
+			local locked = runToolChain(container, pendingPayload, stats)
+
+			-- ✅ Mark undo waypoint AFTER all changes
 			ChangeHistory:SetWaypoint("Bloxig Import Complete")
 
 			setStatus(

@@ -340,6 +340,297 @@ node scripts/seed.js
 # 🟢 CURRENT STATE (most recent — supersedes older notes above)
 # ============================================================
 
+## 🟢🟢🟢 SESSION 2026-07-05 — SECURITY AUDIT + BASE64 SPLIT + EXPORT FIDELITY (NEWEST, supersedes all below)
+
+### 1. FULL SECURITY AUDIT — done + fixes verified LIVE
+Ran a complete black-box + code-review audit (IDOR, auth, JWT forgery, method-swap,
+query/header injection, mass assignment, function-level, NoSQL, path traversal). Result:
+**strong posture, ZERO critical/high.** Two mediums fixed + verified in production:
+- **CSRF fix:** session cookie was `sameSite:'none'` in prod (sent cross-site) with NO CSRF
+  tokens → CSRF on the session web routes (delete/profile). Fix = `sameSite:'lax'` in
+  server.js. **CONFIRMED LIVE** via curl (`set-cookie ... SameSite=Lax`). Plugins use JWT
+  (Authorization header), not the cookie, so nothing broke.
+- **Session-secret fail-fast:** removed the hardcoded `'fallback_secret_change_this'`; now
+  throws in prod if `SESSION_SECRET` unset. (App boots fine → env var IS set.)
+- **`x-powered-by` disabled** (`app.disable('x-powered-by')`) — confirmed gone (was leaking
+  on the CORS preflight where helmet couldn't reach). CORS `origin:'*'` CONFIRMED SAFE (no
+  `credentials:true`, JWT can't be forced cross-site → nothing fetchable).
+- **`npm audit`: 0 vulnerabilities** (was 1 moderate `qs`, fixed).
+- **Verified clean via live tests:** cross-account IDOR on `/api/import/:id` → 404;
+  no-auth → 401; `alg:none` + wrong-secret JWT → 403 (middleware verifies sig + pins algo,
+  the LiteLLM-class bug is NOT present); mass assignment (owner/_id/plan in body) → ignored;
+  path traversal → 400; admin/debug endpoints → 404.
+- **STILL TODO (housekeeping):** regenerate the JWTs pasted in chat during testing (profile
+  → Regenerate token). Low-priority hardening deferred: NoSQL `typeof` guards on /token,
+  login timing side-channel, free-tier export race.
+
+### 2. BASE64 SPLIT — shipped + VERIFIED (fixes storage bloat / 16MB doc risk)
+Base64 images were ~99% of `json_layout_data` (measured: 5.3MB images vs 24KB layout).
+Split them into a new **`ProjectImages` collection** (`{project, images}`), keyed by project.
+- `models/ProjectImages.js` (NEW).
+- `routes/api.js` — export strips `json_layout_data.images` → slim layout stored, images
+  upserted to ProjectImages. Import re-attaches images before returning (plugin sees
+  IDENTICAL data). **Backward-compat:** old inline projects (layout.images present) skip the
+  lookup and return as-is. New projects re-attach from ProjectImages.
+- **VERIFIED:** re-exported a design → import returns `images present: True | size: 5268925`.
+  Layout doc now tiny → faster dashboard/import reads, no 16MB-per-doc risk.
+- NOTE: does NOT reduce total storage (that needs the full strip + plugin change to reuse
+  saved rbxassetids — deferred to a coordinated plugin release). This split is the safe,
+  no-plugin-change win.
+- **Delete cleanup:** `routes/dashboard.js` deletes the ProjectImages doc when a project is
+  deleted (prevents orphans).
+
+### 3. DELETE BUG FIXED (dashboard.js) + on-brand toasts
+- **Bug:** `dashboard.js` called `ProjectImages.deleteOne()` but never imported the model →
+  `ReferenceError` AFTER the project was already deleted → returned "Failed to delete" while
+  the delete actually succeeded (hence "works after refresh"). **Fix = add the missing
+  `require('../models/ProjectImages')`.** (Same missing-import class as the earlier line-7
+  crash — always pair `Model.x()` with a require.)
+- **UI polish:** `views/pages/dashboard.ejs` — replaced the two native `alert()` fallbacks
+  (ugly grey browser boxes) with an on-brand **toast** system (dark, accent-bordered, auto-
+  dismiss). Delete success → green toast + card fade; error → red toast, modal closes.
+  Token-reveal error also uses a toast now. `window.showToast` exposed for reuse.
+
+### 4. EXPORT FIDELITY FIXES (from Gemini's code-review of CLAUDE.md)
+**#1 Auto-grid sibling-swallowing — FIXED (supersedes 07-04 "KNOWN TUNING #1").**
+`looksLikeGrid` (code.ts) now counts non-card siblings and only tags a **PURE** grid
+(2+ uniform cards AND `otherChildren === 0`). Mixed containers (cards + Description panel +
+close button) are NO LONGER gridded → everyone keeps absolute positions (accurate to Figma).
+**VERIFIED:** the Anime UI Description panel now sits correctly beside the grid instead of
+being sucked into the flow. Power users can still force a grid by naming a dedicated
+card-only frame `.scrollv`.
+
+**Stroke alpha bug — FIXED.** `normalizePaint` SOLID branch used `a: opacity` and DROPPED
+`color.a` (the gradient branch already multiplied both). Translucent glassmorphism strokes
+were flattened to fully-opaque → hard BLACK borders. Fix = `a: colorA * opacity` (matches
+gradient branch). **VERIFIED:** card borders now render soft/translucent. NOTE: this also
+correctly affects translucent FILLS (they'll show proper transparency now).
+
+**Both fixes are in ONE `code.ts`** (grid fix `otherChildren` + stroke fix `colorA`).
+Compile `code.ts`→`code.js` (`cd figma-plugin && npx tsc`), copy `code.js` to Windows, reload.
+
+### 5. TWO REAL ISSUES FOUND — FIXES NOT YET DONE (next session)
+**(a) Gradient strokes (Mythic/Legendary cards).** Those cards have a GRADIENT stroke in
+Figma (FFFFFF→3F0076→1A072A). Current tool falls back to the darkest stop → dark border.
+**Roblox CAN do gradient strokes natively** — insert a `UIGradient` as a CHILD of the
+`UIStroke` (CONFIRMED via Roblox API docs; not new). So the fix is NATIVE, not rasterize:
+in `Generator.applyStroke`, when the stroke's paint is a gradient (normalizePaint already
+emits gradientStops for strokes), create a UIGradient child on the UIStroke with those stops
+(reuse the existing fill-gradient/ColorSequence builder). **NEED:** paste Generator.applyStroke
+(≈289-320) + the existing UIGradient/ColorSequence builder to write it.
+
+**(b) OVER-BAKING swallows buttons (Shop UI 23) — BIGGEST issue, blocks shipping.**
+`shouldRasterizeGroup` baked the WHOLE shop (tabs + close button) into ONE flat PNG →
+`GamepassTab/WeaponsTab/SkinTab/LimitedTab/BoostTab/CrossButton` are painted pixels, NOT
+clickable. Explorer showed just `Gradient→UIStroke`, no ImageButtons. Figma names ARE clean
+(`*Tab`, `CrossButton`) and `nameLooksLikeButton` already matches tab/button/close/cross —
+so the parent bakes BEFORE button detection protects the children. **FIX:** make
+`shouldRasterizeGroup` REFUSE to bake any container holding interactive children; bake only
+the decorative sublayers and keep tabs/buttons as native `ImageButton`s positioned over the
+art. **NEED:** full `shouldRasterizeGroup` + how collectImages bakes, to split decorative vs
+interactive.
+
+**Confirmed NOT a bug:** Shop UI 23 showing "only ~4 objects but full UI" = auto-rasterize
+working as designed (decorative art → 1 PNG). Editability-vs-fidelity tradeoff, correct for
+decoration — but see (b): it must STOP swallowing interactive elements.
+
+### 6. ROBLOX 2026 UPDATES (verify vs official docs before relying)
+User surfaced mid-2026 Roblox UI updates (from a Gemini summary — treat as leads, confirm on
+create.roblox.com/docs): native **UIShadow** primitive (blur/color/offset/spread — could map
+Figma drop-shadows natively instead of baking); **individual corner rounding** on UICorner
+(`TopLeftRadius`/`TopRightRadius`/`BottomLeftRadius`/`BottomRightRadius` — could match Figma
+per-corner radii); **gradient strokes** (UIGradient child of UIStroke — CONFIRMED true, used
+in fix 5a). These are fidelity ENHANCEMENTS for later, not blockers.
+
+### REMAINING GEMINI EXPORT BUGS (queued, after 5a/5b)
+- **#2 absoluteBoundingBox rotation drift:** a rotated node inflates its axis-aligned
+  `absoluteBoundingBox`, throwing off sibling X/Y math (serialiseNode ~line 776). Fix = use
+  `absoluteRenderBounds` or `relativeTransform` for true bounds.
+- **#3 pixel vs scale in layout padding** (UIListLayout/UIPadding gaps frozen across devices).
+- **#4 TextScaled microscopic text** — check `textAutoResize` before hard TextScaled clamp.
+
+### FILES CHANGED THIS SESSION (in /outputs, latest)
+- **server.js** (sameSite lax, session-secret fail-fast, x-powered-by disable, cors explicit)
+- **routes/api.js** (base64 split: strip on export, re-attach on import)
+- **models/ProjectImages.js** (NEW)
+- **routes/dashboard.js** (ProjectImages import fix + delete cleanup)
+- **views/pages/dashboard.ejs** (toast system, no native alerts)
+- **code.ts** (looksLikeGrid pure-grid fix + normalizePaint alpha fix) → RECOMPILE to code.js
+- **CLAUDE.md** (this file)
+
+### CROSS-REF: non-Bloxig items this session are in `bloxig-hackathon-ctf-plan.md`
+AMD ACT II Hackathon (Unicorn Track = Bloxig, starts Jul 6), HTB Cyber Apocalypse
+(Jul 24–29), **ISC2 CC exam DEADLINE Jul 31** (in-person Pearson VUE, schedule NOW),
+MetaHoof/Ultra bug report (in-scope, fixed in 2h, unresponsive — send 1 final email, then
+let go). July is stacked — protect the CC deadline + hackathon start; ship Bloxig first.
+
+
+## 🟢🟢🟢 SESSION 2026-07-04 — AUTO-GRID + ERROR REPORTING (NEWEST, supersedes all below)
+
+### Auto-grid shipped — card grids now import as responsive ScrollingFrame+UIGridLayout, ZERO tagging
+The tool now AUTO-detects a card grid and builds a real scrollable, reflowing grid — no
+`.scrollv`/`.grid` tag needed (matches the "automate everything" goal). Verified on the
+Sword-shop product grid and coin shop: cards flow evenly, reflow responsively across device
+sizes (tighter on iPhone 7, wider on iPhone 11), and are clone-ready (UIGridLayout positions
+runtime-cloned cards automatically). This closes the biggest remaining FUNCTIONAL gap — grids
+were static pictures before, now they're live inventories.
+
+**How it works (both sides):**
+- **Export (code.ts → `looksLikeGrid`):** a container with 2+ same-sized card-frames (each
+  holding TEXT, within 4px of each other) is auto-tagged `grid` in the exported prefixes.
+- **Generator.lua:**
+  - `grid` prefix (or `.scrollv`/`.scrollh` with 2+ children) sets `isGrid`. Bare `.grid`
+    promotes to `scrollv` (vertical scroll by default).
+  - `applyAutoGrid(inst, node)` — adds a UIGridLayout; `CellSize` from first child's dims,
+    `CellPadding` from the gap between child 1 and child 2, `SortOrder=LayoutOrder`.
+  - Sets `Bloxig_Grid` attribute on the container.
+  - Child positioning: when `parent:GetAttribute("Bloxig_Grid")==true`, children SKIP
+    `inst.Position` and get `LayoutOrder` instead (grid flows them). This is the ONE place
+    pixel positions are intentionally overridden — a reflowing grid needs it.
+
+**TRADEOFF (by design):** a grid REFLOWS, so it is NOT a pixel-match to the Figma layout.
+For inventories/shops that's the desired behaviour. If a specific design needs exact Figma
+positions, tag the container `.native` to keep it fixed (never becomes a grid).
+
+**KNOWN TUNING (from 07-04 test, not yet fixed):**
+1. Non-card siblings inside the same container (e.g. a "Description" panel next to the cards)
+   can get sucked into the grid flow. Refinement = exclude odd-sized children from the grid,
+   only flow the uniform cards. NEEDS the detection to separate "cards" from "other".
+2. Card CONTENT fidelity (rarity tags/inner text faint on some cards) — separate polish.
+
+### Error-reporting fix (Main.lua)
+The confirm handler declared `applyErr` but NEVER assigned it — every failure printed
+"Import failed: unknown error". Now captures the pcall's error return
+(`local ok, applyErr = pcall(...)`) AND `warn()`s it to Output. Future failures show the
+REAL message. (This was why the Sword-shop "unknown error" was uninformative — the import
+had actually mostly succeeded; a later nil threw and the reporting hid it.)
+
+### FILES CHANGED THIS SESSION (in /outputs, latest versions)
+- **code.js** (compiled, ready — DROP ON WINDOWS, no build needed) + **code.ts** (source) —
+  auto-grid detection `looksLikeGrid` + earlier button/raster logic.
+- **Generator.lua** (→ Mac roblox-plugin/src/) — grid prefix, applyAutoGrid, grid-child
+  position skip.
+- **Main.lua** (→ Mac) — upload-first reorder + error reporting fix.
+- **ImageUploader.lua** (→ Mac) — warm-up ping + 4x retry w/ 2/4/6s backoff (kills
+  ServerProtocolError cold-start drops).
+- **CLAUDE.md** — this file.
+
+### DEPLOY REMINDER
+- Windows figma-plugin folder: **code.js** only (Windows has NO Node; can't compile —
+  Claude/Mac compiles, copy the .js). Reload plugin in Figma → re-export. `exportedAt`
+  timestamp updating = proof the new build ran.
+- Mac roblox-plugin/src/: Generator.lua, Main.lua, ImageUploader.lua (Lua, no build).
+- Commit + push both branches: `git add -A && git commit && git push && git push origin master:main`
+- ⚠️ STILL not fixed permanently: the two-machine sync. Commit figma-plugin/ to the repo so
+  Windows can `git pull` instead of hand-copying code.js. (Cost ~1hr on 06-24.)
+
+### REMAINING PUNCH-LIST (post auto-grid)
+1. Grid detection refinement — exclude non-card siblings (Description panels etc.) from grid flow.
+2. Card content fidelity (faint inner text/rarity tags).
+3. Loose-frame synthesis (files with no wrapping frame — synth root from selection bbox).
+4. (deferred) Move base64 OUT of Mongo doc — upload at export-time, store only name→assetId map.
+5. General fidelity tuning across more designs.
+
+---
+
+## 🟢🟢 SESSION 2026-06-24 — AUTO-RASTERIZE SHIPPED + IMAGE UPLOAD WORKING (NEWEST, supersedes all below)
+
+### THE BREAKTHROUGH: auto-rasterize works on 4 real designs
+The keystone feature is built and verified. The tool now AUTO-detects which Figma
+groups are decorative/effect-heavy and bakes them to ONE flat PNG (replicating the
+manual "hide text → export group as PNG → re-add text" workflow), while keeping
+structural/interactive parts native. No manual `.raster` tagging needed (Figblox makes
+users tag everything; Bloxig auto-detects — this is the real moat).
+
+**Verified on 4 different anime/shop UIs** (all imported RECOGNIZABLY, was "2216 nodes of
+white garbage" before): FlashyAnimeUI inventory, Shop UI 23 (best result), Quest Frame,
+coin Shop UI. The engine GENERALIZES across very different art styles — the thing that
+needed proving before launch.
+
+### How auto-rasterize works (all in figma-plugin/code.ts v1.4, ~865 lines)
+- `shouldRasterizeGroup(node, parsed)` — SINGLE source of truth (serialiseNode AND
+  collectImages both call it). Bakes a container if: has visible effects (glow/shadow/
+  blur), OR non-linear gradient (radial/angular/diamond), OR blend mode, OR >=4 vectorish
+  children (RASTER_VECTOR_THRESHOLD). 
+- Guards (never bake): the export ROOT (`__exportRootId`, set in handleExport — else it
+  flattens the whole UI into one PNG, which was a real bug we hit), `.scrollv/.scrollh/
+  .canvas` tagged nodes (must stay live ScrollingFrames), and real GRIDS (2+ sibling
+  card-frames each holding text — `subtreeHasStructure`).
+- `looksLikeButton()` / `nameLooksLikeButton()` — name contains button/btn/tab/close/
+  cross, or lone "X" → bakes AS ImageButton (tags `imagebutton` in the bake branch so the
+  Generator builds a clickable ImageButton, not a dead ImageLabel). VERIFIED: coin-shop
+  tabs (Coins/Weapons/Boosters/Packs) + X now come through `img=True prefixes=['imagebutton']`.
+- `textIsNativeSafe(t)` — plain solid-fill text, no effects/rotation/blend/gradient-stroke
+  → PULLED OUT as editable TextLabel on top of the baked art. Stylized text (gradient/glow/
+  rotated) stays baked into the image (Roblox can't render it faithfully anyway).
+- `collectNativeSafeText` / `collectNativeSafeTextNodes` — extract editable text; in
+  collectImages the bake does hide-text → exportAsync(PNG, 2x) → RESTORE visibility in a
+  `try/finally` (never leaves the user's Figma file with hidden text).
+
+### Server fixes shipped this session (all live on master+main)
+- **Image hash-dedupe (routes/imageUpload.js).** Real anime UIs reuse one texture 50+
+  times (one design: 159 image entries → only 32 unique by md5). Server now hashes each
+  base64, uploads each UNIQUE image ONCE, fans the asset id to every name sharing the hash.
+  159 uploads → 32. The `>60` cap now applies to UNIQUE count, not raw. Kills the 413 +
+  the rate-limit churn. Returns `stats:{received,uploaded}`.
+- **Export size guard** raised 14MB → 15.5MB in routes/api.js (band-aid; Mongo doc hard
+  cap is 16MB; real fix = stop storing base64 in the doc, deferred).
+
+### Roblox plugin fixes (Generator.lua, committed)
+- Decal→texture resolution: Open Cloud returns a DECAL id; ImageLabel.Image needs the
+  underlying texture or renders blank. Now resolves via InsertService:LoadAsset → read
+  Decal.Texture → assign (cached, moderation-pending fallback to rbxassetid://id). FIXED
+  the blank-images problem.
+- CanvasGroup for opacity<1 groups (whole subtree fades like Figma, not just background).
+- buildFromJSON rootFrame crash patched.
+
+### ⚠️⚠️ THE TWO-MACHINE TRAP (this wasted ~1hr this session — READ)
+Figma plugin code edited on the MAC does NOTHING — Figma exports run on the WINDOWS laptop,
+which has its OWN copy of code.js. Symptoms: every `curl .../api/import/<id>` kept showing
+the SAME `exportedAt` timestamp no matter what — because NO fresh export happened (the
+Windows plugin was stale). 
+- **The tell:** `exportedAt` in the pulled JSON does NOT change = no new export ran.
+- **Windows has NO Node.js** → can't run `npx tsc` there. So: COMPILE code.ts → code.js on
+  a machine that has Node (Mac, or have Claude compile it), then copy ONLY the compiled
+  `code.js` to the Windows figma-plugin folder (Figma needs just code.js + ui.html +
+  manifest.json — NOT the .ts, NOT Node). Reload plugin in Figma (Windows) → re-export →
+  re-pull. `exportedAt` updating = proof it took.
+- **FIX THIS PERMANENTLY:** commit figma-plugin/ to the repo; `git pull` on Windows to sync.
+  Stop hand-copying files between machines.
+
+### Debug recipe (Mac, pulls what Windows exported)
+```
+curl -s --compressed -H "Authorization: Bearer <JWT>" \
+  https://bloxig.onrender.com/api/import/<PROJECT_ID> -o out.json
+# check a fresh export actually ran:
+python3 -c "import json;print(json.load(open('out.json'))['json_layout_data']['exportedAt'])"
+# inspect what baked / prefixes:
+python3 -c "import json;d=json.load(open('out.json'))['json_layout_data'];
+def f(ns):
+ [ (print(n['name'],bool(n.get('imageName')),n.get('prefixes')), f(n.get('children'))) for n in ns or [] ]
+f(d['nodes'])"
+```
+NOTE: same Figma frame = same project id (upsert by figma_frame_id), even after rename.
+
+### STILL TO TUNE / BUILD (post auto-raster, priority order)
+1. **Card grids → ScrollingFrame.** Tag Container `.scrollv` → stays native scroll frame;
+   import ONE card template + UIGridLayout + a script that clones it per item (the standard
+   pattern). `.scroll*`/`.canvas` force-native guard already in code.ts.
+2. **Upload-ordering UX.** Currently imports EMPTY first, THEN uploads+links → user sees a
+   broken-then-fixed flash. Also `ServerProtocolError` on big uploads (Render free-tier
+   cold-start drops the connection; it retries and eventually succeeds). Fix = upload images
+   FIRST, then import+link in one pass; batch uploads (not all 12+ at once).
+3. **Loose-frame synthesis** — files with no wrapping frame (FlashyAnimeUI): synthesize a
+   root from the selection bounding box. Spec'd, not coded.
+4. **Move base64 OUT of Mongo doc** (deferred) — upload at export-time, store only
+   name→assetId map. Retires the 15.5MB band-aid + 16MB cap + double-storage.
+5. Tune `RASTER_VECTOR_THRESHOLD` + the text classifier against more real designs.
+
+### Pricing note (matches landing): $12/mo, $99/yr, $49 lifetime ($49 lifetime is the
+price wedge vs Figblox $12.99/$99/$149).
+
+---
+
 ## 🎯 CORE EXPORT ENGINE — FIDELITY FIXES (this session, all verified)
 The Figma→Roblox conversion had multiple correctness bugs. Fixed in order:
 

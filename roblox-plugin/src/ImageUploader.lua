@@ -57,20 +57,51 @@ function ImageUploader.uploadAll(images, apiKey, userId, serverUrl, token, onPro
 		userId = tostring(userId)
 	})
 
-	local ok, res = pcall(function()
-		return HttpService:RequestAsync({
-			Url     = serverUrl .. "/api/upload-images",
-			Method  = "POST",
-			Headers = {
-				["Content-Type"]  = "application/json",
-				["Authorization"] = "Bearer " .. token
-			},
-			Body = body
-		})
+	-- ── Warm up Render (free tier cold-starts ~50s and drops the FIRST
+	--    big request as ServerProtocolError). A cheap GET wakes the dyno
+	--    so the heavy upload POST lands on an already-running server.
+	if onProgress then onProgress("waking server...") end
+	pcall(function()
+		HttpService:RequestAsync({ Url = serverUrl .. "/", Method = "GET" })
 	end)
 
-	if not ok then
-		return imageMap, { "network: " .. tostring(res) }
+	-- ── Upload with retry + backoff ───────────────────────────────────
+	-- ServerProtocolError / transient drops are common on the first hit
+	-- after a cold start. Retry a few times with increasing delay; only
+	-- the network CALL is retried (not a 4xx, which is a real error).
+	local MAX_TRIES = 4
+	local res, lastErr
+	for attempt = 1, MAX_TRIES do
+		if onProgress and attempt > 1 then
+			onProgress(string.format("retrying upload (%d/%d)...", attempt, MAX_TRIES))
+		end
+
+		local ok, r = pcall(function()
+			return HttpService:RequestAsync({
+				Url     = serverUrl .. "/api/upload-images",
+				Method  = "POST",
+				Headers = {
+					["Content-Type"]  = "application/json",
+					["Authorization"] = "Bearer " .. token
+				},
+				Body = body
+			})
+		end)
+
+		if ok and r then
+			res = r
+			break          -- got an HTTP response (even a 4xx) -> stop retrying
+		end
+
+		-- Network-level failure (ServerProtocolError, timeout, drop). Back off.
+		lastErr = r
+		if attempt < MAX_TRIES then
+			task.wait(2 * attempt)   -- 2s, 4s, 6s
+		end
+	end
+
+	if not res then
+		return imageMap, { "network: " .. tostring(lastErr) .. " (after " .. MAX_TRIES .. " tries)" }
 	end
 
 	if not res.Success or res.StatusCode ~= 200 then

@@ -15,6 +15,10 @@
 
 local ScaleConverter = require(script.Parent.ScaleConverter)
 
+-- ── AI interaction wiring deps (NEW) ──────────────────────────
+local HttpService = game:GetService("HttpService")
+local BLOXIG_SERVER_URL = "https://bloxig.onrender.com"   -- same as Main.lua
+
 local Generator = {}
 
 Generator.VERSION = "3.0.0"
@@ -690,6 +694,64 @@ function Generator.linkImages(container, imageMap)
 end
 
 -- ════════════════════════════════════════════════════════════════
+-- AI INTERACTION WIRING (NEW)
+-- After the UI is built, ask the server (Gemma 4 via Fireworks) to write
+-- the Luau that wires up the buttons/tabs/inputs, and attach it as a
+-- LocalScript. Fails safe — never breaks the import if the AI call fails.
+-- ════════════════════════════════════════════════════════════════
+local function collectInteractive(root)
+	local out = {}
+	for _, inst in ipairs(root:GetDescendants()) do
+		if inst:IsA("ImageButton")
+		or inst:IsA("TextButton")
+		or inst:IsA("TextBox") then
+			table.insert(out, { name = inst.Name, className = inst.ClassName })
+		end
+	end
+	return out
+end
+
+local function attachAIWiring(root)
+	local elements = collectInteractive(root)
+	if #elements == 0 then
+		print("[Bloxig] No interactive elements; skipping AI wiring.")
+		return
+	end
+
+	local ok, res = pcall(function()
+		return HttpService:RequestAsync({
+			Url = BLOXIG_SERVER_URL .. "/api/ai/wire",
+			Method = "POST",
+			Headers = { ["Content-Type"] = "application/json" },
+			Body = HttpService:JSONEncode({ elements = elements }),
+		})
+	end)
+
+	if not ok then
+		warn("[Bloxig] AI wiring request errored: " .. tostring(res))
+		return
+	end
+	if not res.Success then
+		warn("[Bloxig] AI wiring HTTP " .. tostring(res.StatusCode))
+		return
+	end
+
+	local okDecode, payload = pcall(function()
+		return HttpService:JSONDecode(res.Body)
+	end)
+	if not okDecode or not payload.luau or payload.luau == "" then
+		warn("[Bloxig] AI wiring returned no code.")
+		return
+	end
+
+	local ls = Instance.new("LocalScript")
+	ls.Name = "BloxigInteractions"
+	ls.Source = payload.luau        -- Studio plugins can set .Source
+	ls.Parent = root
+	print("[Bloxig] AI interaction script attached (" .. #elements .. " elements).")
+end
+
+-- ════════════════════════════════════════════════════════════════
 -- PUBLIC: buildFromJSON
 -- ════════════════════════════════════════════════════════════════
 function Generator.buildFromJSON(payload, container)
@@ -736,6 +798,8 @@ function Generator.buildFromJSON(payload, container)
 
 	print(string.format("[Bloxig Generator v%s] Built %d nodes into '%s' (%dx%d)",
 		Generator.VERSION, created, rootFrame.Name, frameW, frameH))
+
+	attachAIWiring(rootFrame)   -- NEW: AI interaction wiring
 
 	return rootFrame
 end

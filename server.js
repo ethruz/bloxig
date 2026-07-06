@@ -23,6 +23,7 @@ const apiRoutes         = require('./routes/api');
 const webhookRoutes     = require('./routes/webhooks');
 const profileRoutes     = require('./routes/profile');
 const imageUploadRoutes = require('./routes/imageUpload'); 
+const aiWireRoutes      = require('./routes/aiWire');        // ← NEW (AI interaction layer)
 
 const app = express();
 
@@ -154,6 +155,7 @@ app.use('/marketplace',  marketplaceRoutes);
 app.use('/profile',      profileRoutes);
 app.use('/api',          apiRoutes);
 app.use('/api',          imageUploadRoutes); 
+app.use('/',             aiWireRoutes);          // ← NEW: defines /api/ai/wire internally
 app.use('/api/webhooks', webhookRoutes);
 
 // ── Landing Page ──────────────────────────────────────────────

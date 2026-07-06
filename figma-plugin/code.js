@@ -462,6 +462,7 @@ let __exportRootId = null;
 // TextLabels, leave stylized text baked into the art.
 // ============================================================
 const RASTER_VECTOR_THRESHOLD = 4; // tune: how many vector-ish children = "art"
+const DECOR_PILE_THRESHOLD = 8; // tune: this many+ plain text-less shapes in a group = decorative pile -> bake
 const VECTORISH = ['VECTOR', 'ELLIPSE', 'STAR', 'POLYGON', 'BOOLEAN_OPERATION', 'LINE'];
 const CONTAINER = ['GROUP', 'FRAME', 'COMPONENT', 'INSTANCE', 'COMPONENT_SET', 'SECTION'];
 function isContainer(node) {
@@ -560,6 +561,14 @@ function nameLooksLikeButton(name) {
     const s = (name || '').toLowerCase();
     return /\b(button|btn|tab|close|cross)\b/.test(s) || s.trim() === 'x';
 }
+// Name-based text-input signal: search bars and code/redeem fields. These should
+// become a native TextBox (typeable), not a static TextLabel.
+function nameLooksLikeInput(name) {
+    const s = (name || '').toLowerCase();
+    return /\b(search|input|textbox|textfield|field)\b/.test(s)
+        || /\benter\b.*\b(code|name|text)\b/.test(s)
+        || /\bredeem\s*input\b/.test(s);
+}
 // Is this container a BUTTON (single clickable unit) rather than a GRID/LIST?
 // Button  = has decoration/effects + at most a little text, NO nested card-frames.
 // Grid    = contains 2+ sibling frames that each hold text (the cards) -> NOT a button.
@@ -611,6 +620,31 @@ function shouldRasterizeGroup(node, parsed, _ignored) {
         return true; // multiply/screen/etc
     if (acc.vec >= RASTER_VECTOR_THRESHOLD)
         return true; // vector soup
+    // Decorative-pile bake: a group whose DIRECT children are overwhelmingly plain,
+    // text-less, childless shapes (RECTANGLE/VECTOR/ELLIPSE) is decoration, not
+    // structure — bake it into one PNG instead of emitting dozens of loose shapes.
+    // (This catches effect/backing stacks like a 27-rectangle "InnerStroke" pile
+    // that hit none of the effect/gradient/vector triggers above.)
+    const kids = (node.children || []).filter((c) => c && c.visible !== false);
+    if (kids.length >= DECOR_PILE_THRESHOLD) {
+        let plainShapes = 0, hasInteractive = false, hasText = false;
+        for (const c of kids) {
+            const isPlainShape = (c.type === 'RECTANGLE' || c.type === 'VECTOR' || c.type === 'ELLIPSE' ||
+                c.type === 'LINE' || c.type === 'STAR' || c.type === 'POLYGON')
+                && !(c.children && c.children.length); // no nested content
+            if (isPlainShape)
+                plainShapes++;
+            if (c.type === 'TEXT')
+                hasText = true;
+            const cp = parseLayerName(c.name || '');
+            if (looksLikeButton(c, cp) || nameLooksLikeButton(c.name || ''))
+                hasInteractive = true;
+        }
+        // Bake only if it's ALMOST ALL plain shapes, no text, and nothing clickable
+        // inside — so we never flatten buttons or real content.
+        if (!hasInteractive && !hasText && plainShapes / kids.length >= 0.85)
+            return true;
+    }
     return false;
 }
 // Text classification: can Roblox render this text faithfully as a TextLabel?
@@ -762,6 +796,28 @@ function serialiseNode(node, parentAbsX, parentAbsY) {
         collectNativeSafeText(node, node, keptText);
         base.children = keptText;
         return base; // stop here — children are baked into the image
+    }
+    // ── Interactive TYPING (non-baked path) ─────────────────────────────────
+    // Give elements the right clickable/typeable Roblox class even when they're
+    // NOT rasterized. The Generator already maps these prefixes:
+    //   .imagebutton → ImageButton   .input → TextBox
+    // (Baked buttons are already tagged imagebutton in the rasterize block above.)
+    {
+        const already = base.prefixes || [];
+        const hasBtn = already.indexOf('imagebutton') !== -1 || already.indexOf('textbutton') !== -1;
+        const hasInput = already.indexOf('input') !== -1;
+        // Detected button that didn't bake → make it a clickable ImageButton.
+        if (!hasBtn && looksLikeButton(node, parsed)) {
+            const pfx = already.slice();
+            pfx.push('imagebutton');
+            base.prefixes = pfx;
+        }
+        // Search / code-entry field → typeable TextBox.
+        else if (!hasInput && nameLooksLikeInput(parsed.cleanName)) {
+            const pfx = (base.prefixes || []).slice();
+            pfx.push('input');
+            base.prefixes = pfx;
+        }
     }
     // Clipping — Figma frames clip their content by default. Export it so the
     // Roblox side can match (otherwise decorative/overflowing children spill out).

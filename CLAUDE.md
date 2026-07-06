@@ -340,7 +340,46 @@ node scripts/seed.js
 # 🟢 CURRENT STATE (most recent — supersedes older notes above)
 # ============================================================
 
-## 🟢🟢🟢 SESSION 2026-07-05 — SECURITY AUDIT + BASE64 SPLIT + EXPORT FIDELITY (NEWEST, supersedes all below)
+## 🟢🟢🟢 SESSION 2026-07-06 — QUEST FRAME DEMO-PREP: STROKES + CLAIM-BUTTON FINDING (NEWEST, supersedes all below)
+
+Read the live Quest Frame export JSON to validate it as the hackathon HERO demo UI.
+This was a fidelity/wireability AUDIT of the JSON — two definitive findings, one queued
+Figma action. NO code change shipped this session.
+
+### 1. Black strokes = NOT A BUG (do not "fix")
+Almost every node showed `STROKE=rgb(0,0,0) a=1` → these are GENUINE full-opacity black
+outlines in the design (deliberate bold/comic art style), NOT a conversion error. The
+purple progress bars (`rgb(121,68,142)`) and blue outer frame (`rgb(52,174,253)`) render
+their true colors too. **Stroke conversion is working correctly → leave black strokes
+alone; "fixing" them would make the export LESS faithful to the design.**
+- NOTE: this is SEPARATE from the 07-05 stroke-ALPHA fix. That fix was for TRANSLUCENT
+  strokes being flattened to opaque black (`a: colorA * opacity`). Here the strokes are
+  genuinely opaque black BY DESIGN — nothing to fix.
+
+### 2. Claim buttons are LOOSE TEXT, not button objects (the real finding)
+Each "Claim" is a bare `TEXT` node sitting BESIDE `Rectangle 10` (the button art) as
+separate SIBLINGS — NOT wrapped in its own frame. So there is no clean per-quest
+"ClaimButton" object. Only ONE node got the `[imagebutton]` prefix: the
+`button <FRAME> [imagebutton]` at the bottom (the X / close button), because it IS a
+properly-named button frame.
+- ✅ **X / close button** → clean `[imagebutton]`. AI can wire "click X → close window" NOW.
+- ⚠️ **Claim buttons** → wireable but MESSY (attach click to the loose Claim text or its
+  rectangle). No clean object per quest → not demo-crisp as-is.
+
+### 3. ACTION ITEM (queued — Figma-side, ~15 min, NOT a code change)
+Cleanest fix is DESIGN-side: in Figma, wrap each Claim (text + its rectangle) in a FRAME
+named `ClaimButton` (or add `.imagebutton` to the name) → re-export → each becomes a proper
+`ImageButton` → confirm in the Explorer. Then the AI wires them cleanly.
+- Alternative (no Figma edit): AI-side click handler on the Claim text/parent. Works,
+  slightly less clean, no re-export needed.
+- **Demo once wrapped:** open → 3 named quests shown → click Claim → "Claimed!" + coin
+  reaction → click X → window closes. No ScrollingFrame needed (3 quests, fixed frame).
+  X close is guaranteed-clean already; wrapping the Claims makes the whole Quest UI a
+  fully-wireable demo HERO.
+
+---
+
+## 🟢🟢🟢 SESSION 2026-07-05→06 — SECURITY AUDIT + BASE64 SPLIT + EXPORT FIDELITY (gradient strokes, decor-pile, buttons FIXED) (supersedes all below)
 
 ### 1. FULL SECURITY AUDIT — done + fixes verified LIVE
 Ran a complete black-box + code-review audit (IDOR, auth, JWT forgery, method-swap,
@@ -409,30 +448,45 @@ correctly affects translucent FILLS (they'll show proper transparency now).
 **Both fixes are in ONE `code.ts`** (grid fix `otherChildren` + stroke fix `colorA`).
 Compile `code.ts`→`code.js` (`cd figma-plugin && npx tsc`), copy `code.js` to Windows, reload.
 
-### 5. TWO REAL ISSUES FOUND — FIXES NOT YET DONE (next session)
-**(a) Gradient strokes (Mythic/Legendary cards).** Those cards have a GRADIENT stroke in
-Figma (FFFFFF→3F0076→1A072A). Current tool falls back to the darkest stop → dark border.
-**Roblox CAN do gradient strokes natively** — insert a `UIGradient` as a CHILD of the
-`UIStroke` (CONFIRMED via Roblox API docs; not new). So the fix is NATIVE, not rasterize:
-in `Generator.applyStroke`, when the stroke's paint is a gradient (normalizePaint already
-emits gradientStops for strokes), create a UIGradient child on the UIStroke with those stops
-(reuse the existing fill-gradient/ColorSequence builder). **NEED:** paste Generator.applyStroke
-(≈289-320) + the existing UIGradient/ColorSequence builder to write it.
+### 5. TWO ISSUES FROM MID-SESSION — NOW FIXED + VERIFIED (completed later same session, into 07-06)
+> These were logged as "NOT YET DONE" mid-session, then FIXED before the session ended.
+> Updated 07-06: both shipped and verified across 5–6 real designs.
 
-**(b) OVER-BAKING swallows buttons (Shop UI 23) — BIGGEST issue, blocks shipping.**
-`shouldRasterizeGroup` baked the WHOLE shop (tabs + close button) into ONE flat PNG →
-`GamepassTab/WeaponsTab/SkinTab/LimitedTab/BoostTab/CrossButton` are painted pixels, NOT
-clickable. Explorer showed just `Gradient→UIStroke`, no ImageButtons. Figma names ARE clean
-(`*Tab`, `CrossButton`) and `nameLooksLikeButton` already matches tab/button/close/cross —
-so the parent bakes BEFORE button detection protects the children. **FIX:** make
-`shouldRasterizeGroup` REFUSE to bake any container holding interactive children; bake only
-the decorative sublayers and keep tabs/buttons as native `ImageButton`s positioned over the
-art. **NEED:** full `shouldRasterizeGroup` + how collectImages bakes, to split decorative vs
-interactive.
+**(a) Gradient strokes (Mythic/Legendary cards) — FIXED.** Those cards have a GRADIENT stroke
+in Figma (FFFFFF→3F0076→1A072A); the tool used to fall back to the darkest stop → dark border.
+Fix shipped in **`Generator.lua` (`applyStroke`)**: when the stroke paint is a gradient
+(normalizePaint already emits gradientStops for strokes), it now creates a **`UIGradient` as a
+CHILD of the `UIStroke`** with those stops (reusing the existing fill-gradient/ColorSequence
+builder) — the native Roblox approach, CONFIRMED vs API docs. **VERIFIED:** special cards show
+proper gradient borders in Studio.
 
-**Confirmed NOT a bug:** Shop UI 23 showing "only ~4 objects but full UI" = auto-rasterize
-working as designed (decorative art → 1 PNG). Editability-vs-fidelity tradeoff, correct for
-decoration — but see (b): it must STOP swallowing interactive elements.
+**(b) OVER-BAKING that swallowed buttons — FIXED via composition-based decorative-pile rule.**
+Root cause was `shouldRasterizeGroup` being both too greedy (baking containers that held
+interactive children) AND too blind (a pile of plain filled RECTANGLES hit none of the
+effect/gradient/vector triggers, so a 27-rect `InnerStroke` decorative stack leaked as loose
+shapes). Fix = a new **composition** rule in `shouldRasterizeGroup`: bake a group whose direct
+children are overwhelmingly plain, text-less, childless shapes
+(RECTANGLE/VECTOR/ELLIPSE/LINE/STAR/POLYGON) past `DECOR_PILE_THRESHOLD = 8` — BUT only if the
+group has **NO text and NO interactive children** (`looksLikeButton`/`nameLooksLikeButton`
+guard). So decoration bakes to one PNG; tabs/buttons/close (`*Tab`, `CrossButton`) and any text
+survive as native instances. Driven by composition, not names → generalizes to any messy design.
+**VERIFIED:** the 27-rect `InnerStroke` pile collapsed to `MainFrame → InnerStroke → UICorner,
+UIStroke, Main`; `SearchBar/BackpackIcon/PlayerIcon` stayed clean named nodes; Quests + Redeem
+came through fully structured with native buttons.
+
+**(c) BONUS improvement — button/input typing.** Detected non-baked buttons now emit
+`ImageButton` and search/input fields emit `TextBox` (using existing Generator prefix mappings)
+— so interactive elements come out as the correct clickable/typable class, ready to wire.
+
+**FINAL VERIFICATION (5–6 designs):** Quests (best conversion — clean `Quest1/2/3`, native
+Claim/text/UIGradient/UIStroke), Redeem (named input + button), Shop (sunbursts baked correctly),
+Inventory/anime4 (decor-pile collapsed), Anime UI (grid + gradient strokes holding). Pipeline
+converts all faithfully. All fixes accumulated into ONE `code.ts` (braces verified balanced) +
+`Generator.lua`. Recompile `code.ts`→`code.js`, copy to Windows, reload.
+
+**Confirmed NOT a bug:** a design showing "only ~4 objects but full UI" = auto-rasterize working
+as designed (decorative art → 1 PNG). Editability-vs-fidelity tradeoff, correct for decoration —
+and (b)'s guard now ensures it never swallows interactive/text children.
 
 ### 6. ROBLOX 2026 UPDATES (verify vs official docs before relying)
 User surfaced mid-2026 Roblox UI updates (from a Gemini summary — treat as leads, confirm on
@@ -442,7 +496,7 @@ Figma drop-shadows natively instead of baking); **individual corner rounding** o
 per-corner radii); **gradient strokes** (UIGradient child of UIStroke — CONFIRMED true, used
 in fix 5a). These are fidelity ENHANCEMENTS for later, not blockers.
 
-### REMAINING GEMINI EXPORT BUGS (queued, after 5a/5b)
+### REMAINING GEMINI EXPORT BUGS (still queued — Gemini #1/gradient-stroke/decor-pile are now DONE)
 - **#2 absoluteBoundingBox rotation drift:** a rotated node inflates its axis-aligned
   `absoluteBoundingBox`, throwing off sibling X/Y math (serialiseNode ~line 776). Fix = use
   `absoluteRenderBounds` or `relativeTransform` for true bounds.
@@ -455,7 +509,9 @@ in fix 5a). These are fidelity ENHANCEMENTS for later, not blockers.
 - **models/ProjectImages.js** (NEW)
 - **routes/dashboard.js** (ProjectImages import fix + delete cleanup)
 - **views/pages/dashboard.ejs** (toast system, no native alerts)
-- **code.ts** (looksLikeGrid pure-grid fix + normalizePaint alpha fix) → RECOMPILE to code.js
+- **code.ts** (looksLikeGrid pure-grid fix + normalizePaint alpha fix + DECOR_PILE_THRESHOLD
+  composition bake rule + ImageButton/TextBox emission) → RECOMPILE to code.js
+- **Generator.lua** (gradient-stroke fix: UIGradient child of UIStroke in applyStroke)
 - **CLAUDE.md** (this file)
 
 ### CROSS-REF: non-Bloxig items this session are in `bloxig-hackathon-ctf-plan.md`
@@ -465,7 +521,7 @@ MetaHoof/Ultra bug report (in-scope, fixed in 2h, unresponsive — send 1 final 
 let go). July is stacked — protect the CC deadline + hackathon start; ship Bloxig first.
 
 
-## 🟢🟢🟢 SESSION 2026-07-04 — AUTO-GRID + ERROR REPORTING (NEWEST, supersedes all below)
+## 🟢🟢🟢 SESSION 2026-07-04 — AUTO-GRID + ERROR REPORTING (supersedes all below)
 
 ### Auto-grid shipped — card grids now import as responsive ScrollingFrame+UIGridLayout, ZERO tagging
 The tool now AUTO-detects a card grid and builds a real scrollable, reflowing grid — no
@@ -533,7 +589,7 @@ had actually mostly succeeded; a later nil threw and the reporting hid it.)
 
 ---
 
-## 🟢🟢 SESSION 2026-06-24 — AUTO-RASTERIZE SHIPPED + IMAGE UPLOAD WORKING (NEWEST, supersedes all below)
+## 🟢🟢 SESSION 2026-06-24 — AUTO-RASTERIZE SHIPPED + IMAGE UPLOAD WORKING (supersedes all below)
 
 ### THE BREAKTHROUGH: auto-rasterize works on 4 real designs
 The keystone feature is built and verified. The tool now AUTO-detects which Figma

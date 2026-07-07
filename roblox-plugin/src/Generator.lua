@@ -699,24 +699,91 @@ end
 -- the Luau that wires up the buttons/tabs/inputs, and attach it as a
 -- LocalScript. Fails safe — never breaks the import if the AI call fails.
 -- ════════════════════════════════════════════════════════════════
+
+-- Names that signal an interactive element (Bloxig auto-detect: reads the
+-- tree and infers intent, so users never have to tag buttons in Figma).
+local INTERACTIVE_PATTERNS = {
+	"claim", "close", "cross", "redeem", "buy", "purchase", "shop",
+	"confirm", "cancel", "play", "start", "next", "back", "exit",
+	"submit", "tab", "button", "btn", "ok", "yes", "no", "select",
+}
+
+local function nameLooksInteractive(name)
+	local n = string.lower(name or "")
+	for _, p in ipairs(INTERACTIVE_PATTERNS) do
+		if string.find(n, p, 1, true) then return true end
+	end
+	return false
+end
+
+-- Map a name to a behavior hint the AI uses to decide what the click does.
+local function intentHint(name)
+	local n = string.lower(name or "")
+	if n:find("close") or n:find("cross") or n == "x" or n == "button" or n:find("exit") then
+		return "close"
+	elseif n:find("claim") or n:find("redeem") then
+		return "claim"
+	elseif n:find("tab") then
+		return "tab"
+	end
+	return "generic"
+end
+
+-- Auto-detect interactive elements. Real buttons are used as-is; visible
+-- elements that look interactive (by name) get a TRANSPARENT clickable
+-- TextButton overlaid on top (visuals untouched, now clickable). Returns a
+-- list of { name, className, hint } with UNIQUE names so duplicates (e.g.
+-- three "Claim"s) each wire independently.
 local function collectInteractive(root)
-	local out = {}
-	for _, inst in ipairs(root:GetDescendants()) do
-		if inst:IsA("ImageButton")
-		or inst:IsA("TextButton")
-		or inst:IsA("TextBox") then
-			table.insert(out, { name = inst.Name, className = inst.ClassName })
+	local out  = {}
+	local used = {}
+
+	local function uniqueName(base)
+		local nm, i = base, 1
+		while used[nm] do i = i + 1; nm = base .. i end
+		used[nm] = true
+		return nm
+	end
+
+	-- snapshot first — we add overlay children during the loop
+	local descendants = root:GetDescendants()
+
+	for _, inst in ipairs(descendants) do
+		if inst:IsA("ImageButton") or inst:IsA("TextButton") or inst:IsA("TextBox") then
+			-- already interactive
+			local nm = uniqueName(inst.Name)
+			if nm ~= inst.Name then inst.Name = nm end -- de-dupe real buttons too
+			table.insert(out, { name = nm, className = inst.ClassName, hint = intentHint(nm) })
+
+		elseif (inst:IsA("TextLabel") or inst:IsA("Frame") or inst:IsA("ImageLabel"))
+			and nameLooksInteractive(inst.Name) then
+			-- promote: overlay a transparent, full-size clickable button
+			local nm  = uniqueName(inst.Name .. "Click")
+			local btn = Instance.new("TextButton")
+			btn.Name                   = nm
+			btn.Size                   = UDim2.fromScale(1, 1)
+			btn.Position               = UDim2.fromScale(0, 0)
+			btn.AnchorPoint            = Vector2.new(0, 0)
+			btn.BackgroundTransparency = 1
+			btn.Text                   = ""
+			btn.ZIndex                 = 50
+			btn.Active                 = true
+			btn.Selectable             = true
+			btn.Parent                 = inst
+			table.insert(out, { name = nm, className = "TextButton", hint = intentHint(inst.Name) })
 		end
 	end
+
 	return out
 end
 
-local function attachAIWiring(root)
+function Generator.attachAIWiring(root)
 	local elements = collectInteractive(root)
 	if #elements == 0 then
 		print("[Bloxig] No interactive elements; skipping AI wiring.")
 		return
 	end
+	print("[Bloxig] Auto-detected " .. #elements .. " interactive element(s); asking AI to wire...")
 
 	local ok, res = pcall(function()
 		return HttpService:RequestAsync({
@@ -799,7 +866,7 @@ function Generator.buildFromJSON(payload, container)
 	print(string.format("[Bloxig Generator v%s] Built %d nodes into '%s' (%dx%d)",
 		Generator.VERSION, created, rootFrame.Name, frameW, frameH))
 
-	attachAIWiring(rootFrame)   -- NEW: AI interaction wiring
+	Generator.attachAIWiring(rootFrame)   -- NEW: AI interaction wiring
 
 	return rootFrame
 end

@@ -9,10 +9,10 @@
 const express = require('express');
 const router = express.Router();
 
-const USE_STUB = false; // <-- flip to false when FIREWORKS_API_KEY is live
+const USE_STUB = true; // <-- flip to false when FIREWORKS_API_KEY is live
 
 const FIREWORKS_URL = 'https://api.fireworks.ai/inference/v1/chat/completions';
-const MODEL = 'accounts/fireworks/models/kimi-k2p6'; // confirm exact id in Fireworks dashboard
+const MODEL = 'accounts/fireworks/models/gemma-4-27b-it'; // confirm exact id in Fireworks dashboard
 
 router.post('/api/ai/wire', async (req, res) => {
   try {
@@ -156,30 +156,42 @@ function generateStubLuau(elements) {
 // ────────────────────────────────────────────────────────────
 function buildSystemPrompt() {
   return [
-    'You are a Roblox Luau expert. You write LocalScripts that wire up UI.',
+    'You are a Roblox Luau expert. You write a single LocalScript that wires up UI.',
+    '',
+    'Context: the script is a LocalScript whose Parent is the root UI frame.',
+    'Some interactive elements are TRANSPARENT overlay TextButtons placed on top of a',
+    'visible element — for those, the VISIBLE element is the overlay button\'s Parent.',
+    '',
+    'Each element you are given has a "hint" telling you its intended behavior:',
+    '- "close": when clicked, set root.Visible = false (hide the whole panel).',
+    '- "claim": when clicked, give visible feedback then disable further clicks:',
+    '    if the button\'s Parent is a TextLabel/TextButton, set Parent.Text = "Claimed!";',
+    '    set the button.Active = false; print("[Bloxig] reward hook: " .. button.Name).',
+    '    Use a local `claimed` flag so it only fires once.',
+    '- "tab": clicking shows the matching *Content frame and hides sibling *Content frames.',
+    '- "generic": print("[Bloxig] clicked " .. button.Name) on click.',
     '',
     'Rules you MUST follow:',
     '- Output ONLY valid Luau code. No explanations, no markdown fences.',
-    '- The script is a LocalScript placed inside the UI (script.Parent = the root).',
-    '- Find elements by exact name with: root:FindFirstChild(name, true).',
-    '- Buttons are ImageButton or TextButton. Use element.MouseButton1Click:Connect(...).',
-    '- Close/cross buttons: set root.Visible = false.',
-    '- Claim buttons: show a claimed state and print a reward hook placeholder.',
-    '- Tabs: clicking a tab shows its matching content frame and hides sibling contents.',
+    '- local root = script.Parent',
+    '- Find each element by its exact name: root:FindFirstChild(name, true).',
+    '- Connect with element.MouseButton1Click:Connect(function() ... end).',
     '- Guard EVERY element access with an if check so a missing element never errors.',
     '- Do NOT invent elements that are not in the provided list.',
   ].join('\n');
 }
 
 function buildUserPrompt(elements) {
-  const list = elements.map((e) => `- ${e.name} (${e.className})`).join('\n');
+  const list = elements
+    .map((e) => `- ${e.name} (${e.className}) [hint: ${e.hint || 'generic'}]`)
+    .join('\n');
   return [
-    'Here are the interactive UI elements Bloxig converted:',
+    'Here are the interactive UI elements Bloxig auto-detected, each with a behavior hint:',
     '',
     list,
     '',
-    'Write a single LocalScript that wires sensible default behavior for each',
-    'interactive element. Return only the Luau code.',
+    'Write a single LocalScript that wires each element according to its hint.',
+    'Return only the Luau code.',
   ].join('\n');
 }
 

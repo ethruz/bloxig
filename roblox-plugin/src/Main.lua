@@ -454,6 +454,20 @@ local function buildUI()
 			-- ── STEP 4: tool chain — Lock Text + Lock Stroke ──────────
 			local locked = runToolChain(container, pendingPayload, stats)
 
+			-- ── STEP 5: AI interaction wiring (Kimi via Fireworks) ────
+			-- Runs on the built root frame so the close button's
+			-- `root.Visible = false` targets the panel (a Frame), not
+			-- the ScreenGui. Fails safe — never blocks the import.
+			pcall(function()
+				local rootName  = pendingPayload.frame and pendingPayload.frame.name
+				local rootFrame = rootName and container:FindFirstChild(rootName)
+				if rootFrame then
+					Generator.attachAIWiring(rootFrame)
+				else
+					warn("[Bloxig] AI wiring: root frame not found for wiring.")
+				end
+			end)
+
 			-- ✅ Mark undo waypoint AFTER all changes
 			ChangeHistory:SetWaypoint("Bloxig Import Complete")
 

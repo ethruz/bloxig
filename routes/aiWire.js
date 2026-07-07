@@ -12,7 +12,7 @@ const router = express.Router();
 const USE_STUB = false; // <-- flip to false when FIREWORKS_API_KEY is live
 
 const FIREWORKS_URL = 'https://api.fireworks.ai/inference/v1/chat/completions';
-const MODEL = 'accounts/fireworks/models/gemma-4-31b-it'; // confirm exact id in Fireworks dashboard
+const MODEL = 'accounts/fireworks/models/gemma-4-26b-a4b-it'; // confirm exact id in Fireworks dashboard
 
 router.post('/api/ai/wire', async (req, res) => {
   try {

@@ -172,6 +172,12 @@ function handleExport(token) {
         }
         const node = selection[0];
         __exportRootId = node.id; // mark root so it is never rasterized
+        {
+            const rabb = node.absoluteBoundingBox;
+            __exportRootGeo = rabb
+                ? { x: rabb.x, y: rabb.y, w: rabb.width, h: rabb.height }
+                : { x: 0, y: 0, w: node.width || 1, h: node.height || 1 };
+        }
         const validTypes = ['FRAME', 'COMPONENT', 'COMPONENT_SET', 'SECTION', 'GROUP'];
         if (validTypes.indexOf(node.type) === -1) {
             figma.ui.postMessage({
@@ -222,7 +228,7 @@ function handleExport(token) {
             figma.ui.postMessage({ type: 'PROGRESS', message: 'Image render skipped: ' + String(err) });
         }
         const payload = {
-            version: '1.4.0',
+            version: '1.5.1',
             exportedAt: new Date().toISOString(),
             figmaFileKey: (_c = figma.fileKey) !== null && _c !== void 0 ? _c : 'local',
             figmaFileId: (_d = figma.fileKey) !== null && _d !== void 0 ? _d : 'local',
@@ -455,6 +461,7 @@ function imageNameFor(node, parsed) {
 // Tracks the root node of the in-progress export so the root frame itself
 // is never rasterized (we must never bake the whole UI into one PNG).
 let __exportRootId = null;
+let __exportRootGeo = { x: 0, y: 0, w: 1, h: 1 };
 // ============================================================
 // AUTO-RASTERIZE HELPERS (v1.4)
 // Bake decorative/effect-heavy groups to ONE PNG; keep structural
@@ -588,6 +595,165 @@ function looksLikeButton(node, parsed) {
         return cardFrames < 2;
     }
     return false;
+}
+// ════════════════════════════════════════════════════════════════════════
+// STRUCTURE-BASED INTERACTIVITY DETECTION (v1.5)
+// ------------------------------------------------------------------------
+// Detect clickable elements by STRUCTURE + POSITION + TEXT, NOT by layer name.
+// This is what makes Bloxig work on ANY design regardless of how a user named
+// their layers ("Btn_Dismiss", "collectReward", "Group 47", non-English).
+// Prior art (Locofy LDM, Alibaba UISCGD): deterministic structural heuristics
+// find candidates; the AI later infers final behavior. Runs on the Figma node
+// (true pixel geometry). Name signals are a weak booster, never the gate.
+// ════════════════════════════════════════════════════════════════════════
+function isButtonCandidateByStructure(node) {
+    if (!isContainer(node))
+        return false;
+    // Gate 1 — visual backing: the node OR a shallow descendant has a fill/stroke,
+    // OR is a rasterized image (a baked PNG IS visual backing — e.g. a decorative
+    // close button that got auto-rasterized has empty fills but a real rendered box).
+    const nodeHasPaint = (nn) => {
+        if (nn.isRaster || nn.imageName)
+            return true; // baked image = backed
+        const f = Array.isArray(nn.fills) && nn.fills.some((x) => x && x.visible !== false);
+        const s = Array.isArray(nn.strokes) && nn.strokes.length > 0;
+        return !!(f || s);
+    };
+    const backingWithin = (nn, depth) => {
+        if (depth > 2)
+            return false;
+        if (nn.isRaster || nn.imageName)
+            return true; // raster anywhere = backed
+        if (nn.type !== 'TEXT' && nodeHasPaint(nn))
+            return true; // a non-text painted surface
+        for (const c of (nn.children || [])) {
+            if (backingWithin(c, depth + 1))
+                return true;
+        }
+        return false;
+    };
+    if (!backingWithin(node, 0))
+        return false;
+    // Gate 2 — contains text (direct or shallow), but is NOT a multi-card grid.
+    let cardFrames = 0, hasText = false;
+    const textWithin = (nn, depth) => {
+        if (depth > 3)
+            return false;
+        if (nn.type === 'TEXT')
+            return true;
+        for (const c of (nn.children || []))
+            if (textWithin(c, depth + 1))
+                return true;
+        return false;
+    };
+    for (const c of (node.children || [])) {
+        if (c.visible === false)
+            continue;
+        if ((c.type === 'FRAME' || c.type === 'COMPONENT' || c.type === 'INSTANCE')
+            && (c.children || []).some((g) => g.type === 'TEXT'))
+            cardFrames++;
+    }
+    hasText = textWithin(node, 0);
+    if (cardFrames >= 2)
+        return false; // grid/list, not a single button
+    // Gate 3 — physical scale sanity.
+    const w = node.width || 0, h = node.height || 0;
+    if (w <= 0 || h <= 0)
+        return false;
+    const area = w * h;
+    if (area > 90000 && !nameLooksLikeButton(node.name || ''))
+        return false; // ~300x300 banner guard
+    const aspect = w / h;
+    const isIconSized = h >= 14 && h <= 90 && aspect >= 0.6 && aspect <= 1.7; // square-ish (icon/close)
+    const isButtonRatio = h >= 16 && h <= 110 && aspect >= 1.2 && aspect <= 7.0 && hasText;
+    return isIconSized || isButtonRatio;
+}
+function inferRoleHint(node, ctx) {
+    const t = (ctx.text || '').trim().toLowerCase();
+    if (t === 'x' || t === '✕' || t === '×' || /\bclose\b|\bexit\b/.test(t))
+        return 'close';
+    if (ctx.zoneY === 'top' && ctx.zoneX === 'right') {
+        const w = node.width || 0, h = node.height || 0;
+        const aspect = h > 0 ? w / h : 99;
+        if (aspect >= 0.6 && aspect <= 1.7 && w <= 90)
+            return 'close';
+    }
+    if (ctx.rowMember)
+        return 'tab';
+    if (/\b(claim|collect|redeem|get|buy|purchase|unlock|equip|use|start|play|confirm|open)\b/.test(t)) {
+        return (t.includes('claim') || t.includes('collect') || t.includes('redeem')) ? 'claim' : 'action';
+    }
+    if (nameLooksLikeInput(node.name || '') || /\bsearch\b|\benter\b/.test(t))
+        return 'input';
+    return 'generic';
+}
+function detectRowMembership(node, parent) {
+    if (!parent || !('children' in parent))
+        return false;
+    const sibs = (parent.children || []).filter((c) => c && c.visible !== false && (c.width || 0) > 0 && (c.height || 0) > 0);
+    if (sibs.length < 2 || sibs.length > 8)
+        return false;
+    const gy = (c) => { var _a; return (_a = (c.absoluteBoundingBox ? c.absoluteBoundingBox.y : c.y)) !== null && _a !== void 0 ? _a : 0; };
+    const gx = (c) => { var _a; return (_a = (c.absoluteBoundingBox ? c.absoluteBoundingBox.x : c.x)) !== null && _a !== void 0 ? _a : 0; };
+    const baseY = gy(node), baseH = node.height || 0;
+    const row = sibs.filter((c) => Math.abs(gy(c) - baseY) <= 6 && Math.abs((c.height || 0) - baseH) <= 6);
+    if (row.length < 2)
+        return false;
+    row.sort((a, b) => gx(a) - gx(b));
+    let expectedGap = -1;
+    for (let i = 0; i < row.length - 1; i++) {
+        const a = row[i], b = row[i + 1];
+        const gap = gx(b) - (gx(a) + (a.width || 0));
+        if (expectedGap < 0)
+            expectedGap = gap;
+        else if (Math.abs(gap - expectedGap) > 8)
+            return false;
+    }
+    if (expectedGap > (row[0].width || 0) * 0.6)
+        return false; // spread = grid, not tabs
+    return row.indexOf(node) !== -1;
+}
+function firstTextIn(node, depth = 0) {
+    if (!node || depth > 3)
+        return '';
+    if (node.type === 'TEXT' && typeof node.characters === 'string')
+        return node.characters;
+    for (const c of (node.children || [])) {
+        const t = firstTextIn(c, depth + 1);
+        if (t)
+            return t;
+    }
+    return '';
+}
+// MAIN ENTRY: stamp base.interactive/roleHint/uiContext. absX/absY = this node's
+// absolute origin; rootX/Y/W/H describe the export root frame for zone calc.
+function detectInteractivity(node, base, parsed, parent, absX, absY, rootX, rootY, rootW, rootH) {
+    if (node.id === __exportRootId)
+        return false;
+    if (node.type === 'TEXT')
+        return false; // loose text handled Roblox-side
+    const nameSignal = looksLikeButton(node, parsed) || nameLooksLikeButton(node.name || '');
+    const structSignal = isButtonCandidateByStructure(node);
+    if (!nameSignal && !structSignal)
+        return false;
+    const cx = absX + (node.width || 0) / 2;
+    const cy = absY + (node.height || 0) / 2;
+    const fracX = rootW > 0 ? (cx - rootX) / rootW : 0.5;
+    const fracY = rootH > 0 ? (cy - rootY) / rootH : 0.5;
+    const zoneX = fracX < 0.33 ? 'left' : (fracX > 0.66 ? 'right' : 'center');
+    const zoneY = fracY < 0.25 ? 'top' : (fracY > 0.72 ? 'bottom' : 'middle');
+    const text = firstTextIn(node).slice(0, 40);
+    const rowMember = detectRowMembership(node, parent);
+    const aspect = (node.height || 1) > 0 ? (node.width || 0) / (node.height || 1) : 0;
+    base.interactive = true;
+    base.roleHint = inferRoleHint(node, { zoneX, zoneY, text, rowMember });
+    base.uiContext = {
+        text: text || undefined,
+        zoneX, zoneY,
+        aspect: Math.round(aspect * 100) / 100,
+        rowMember: rowMember || undefined,
+    };
+    return true;
 }
 // THE decision. serialiseNode AND collectImages must both call THIS one function,
 // or the JSON and the PNGs disagree. Single source of truth.
@@ -795,6 +961,10 @@ function serialiseNode(node, parentAbsX, parentAbsY) {
         const keptText = [];
         collectNativeSafeText(node, node, keptText);
         base.children = keptText;
+        // Even though this node is baked to a PNG, it can still be INTERACTIVE
+        // (e.g. an auto-rasterized close button). Run structural detection here too,
+        // before the early return — otherwise baked buttons never get wired.
+        detectInteractivity(node, base, parsed, node.parent, absX, absY, __exportRootGeo.x, __exportRootGeo.y, __exportRootGeo.w, __exportRootGeo.h);
         return base; // stop here — children are baked into the image
     }
     // ── Interactive TYPING (non-baked path) ─────────────────────────────────
@@ -819,6 +989,11 @@ function serialiseNode(node, parentAbsX, parentAbsY) {
             base.prefixes = pfx;
         }
     }
+    // ── STRUCTURE-BASED interactivity (v1.5) ────────────────────────────────
+    // Stamp interactive/roleHint/uiContext by STRUCTURE (works regardless of name).
+    // Additive: purely metadata for the Roblox side + AI. Doesn't change geometry
+    // or the prefix-driven class. absX/absY are this node's absolute origin.
+    detectInteractivity(node, base, parsed, node.parent, absX, absY, __exportRootGeo.x, __exportRootGeo.y, __exportRootGeo.w, __exportRootGeo.h);
     // Clipping — Figma frames clip their content by default. Export it so the
     // Roblox side can match (otherwise decorative/overflowing children spill out).
     if (typeof n.clipsContent === 'boolean') {

@@ -340,7 +340,81 @@ node scripts/seed.js
 # 🟢 CURRENT STATE (most recent — supersedes older notes above)
 # ============================================================
 
-## 🟢🟢🟢 SESSION 2026-07-06 — QUEST FRAME DEMO-PREP: STROKES + CLAIM-BUTTON FINDING (NEWEST, supersedes all below)
+## 🟢🟢🟢 SESSION 2026-07-07 — AI INTERACTION LAYER SHIPPED + LIVE (NEWEST, supersedes all below)
+
+**THE BIG ONE: Bloxig now makes converted UIs WORK, not just look right.** The AI
+interaction layer is built, deployed, and demonstrated end-to-end. This is the
+AMD Hackathon (ACT II, Unicorn track) feature. Deadline: **July 11**.
+
+### What shipped (all live + verified in Studio)
+1. **Backend route `routes/aiWire.js`** (POST /api/ai/wire) — takes the converted UI's
+   interactive elements, calls an LLM on **Fireworks (AMD-hosted)**, returns Luau. API
+   key stays server-side (`FIREWORKS_API_KEY` in Render env). Has a `USE_STUB` flag
+   (currently FALSE = live AI). Mounted in server.js at `app.use('/', aiWireRoutes)`.
+2. **Model = `accounts/fireworks/models/kimi-k2p6`** (Kimi K2.6). NOT Gemma —
+   Gemma 4 is NOT serverless-callable on this Fireworks account (only Tunable /
+   deploy-on-demand), so it 404s. Kimi/GLM/GPT-OSS/DeepSeek ARE serverless. Kimi K2.6
+   is strong at code, so it's the better pick for Luau anyway. (Gemma bonus = $6k, but
+   not worth deploy-on-demand hassle mid-sprint; Unicorn track only needs AMD compute,
+   which Fireworks satisfies regardless of model.)
+3. **`Generator.lua` — auto-detect + promote** (the Bloxig-way, no Figma tagging):
+   `collectInteractive` walks the built tree, finds elements whose NAME looks interactive
+   (INTERACTIVE_PATTERNS list), and for non-button visible elements (TextLabel/Frame/
+   ImageLabel) it OVERLAYS a transparent full-size clickable TextButton (visuals
+   untouched). Unique names for dupes (3× Claim → ClaimClick/ClaimClick2/ClaimClick3).
+   Each gets a `hint` (close/claim/tab/generic) from its name. `Generator.attachAIWiring`
+   is PUBLIC and inserts the returned Luau as a `BloxigInteractions` LocalScript.
+4. **`Main.lua` — STEP 5 wiring call.** CRITICAL FIX: the import path is
+   `SmartMerge.apply → linkImages → runToolChain`, it NEVER calls `Generator.buildFromJSON`.
+   So the wiring call had to go in Main.lua AFTER runToolChain (line ~455), calling
+   `Generator.attachAIWiring(rootFrame)` on the actual root FRAME (so close-button's
+   `root.Visible=false` targets the panel, not the ScreenGui).
+
+### VERIFIED WORKING (Quest UI)
+Import → `Auto-detected 5 interactive element(s)` → `AI interaction script attached`.
+In Play: clicking Claim → "Claimed!" on the label + reward-hook print; clicking X → panel
+closes. Full pipeline: Figma → auto-convert → AI-wire → clickable. **DONE.**
+
+### KNOWN GOTCHAS (hard-won this session)
+- **Plugin update loop:** editing the ModuleScript TABS in Studio does NOT update the
+  running plugin. Must right-click `ServerStorage → Bloxig` → **Save as Local Plugin**
+  (overwrite Bloxig.rbxmx) for edits to take effect. This wasted ~1hr ("same result").
+- **Plugin vanished** from toolbar after messy saves + duplicate .rbxmx files. Fix:
+  delete ALL Bloxig*.rbxmx, save cleanly from the Bloxig folder, quit+reopen Studio.
+- **Black-text bug:** Kimi was setting "Claimed!" on the transparent overlay (default
+  black text). FIXED in aiWire.js prompt: feedback MUST target `btn.Parent` (the styled
+  label), NEVER the overlay's own .Text. (Push aiWire.js for this to go live.)
+- Git: `git push && git push origin master:main --force-with-lease` (main = Render).
+
+### OPEN / NEXT (Battle Pass test revealed the gap)
+- **Detection net too narrow.** Battle Pass UI has Tiers/Level1-5/Exit/GetPremium buttons
+  but only 1 was detected — because those names don't match INTERACTIVE_PATTERNS
+  (no "button/claim/close/tab" keyword). Widen the list (exit, premium, level, tier,
+  equip, unlock, purchase, slot...) OR detect Group/Frame-with-text-label as button.
+- **Tab switching + scrolling NOT built** (Battle Pass tabs, tier grid scroll). Genuinely
+  complex → ROADMAP item, not pre-deadline. Talking point: "next: AI-generated scroll,
+  tab switching, hover animations."
+- **Getting Battle Pass JSON** to diagnose exactly what the export captured vs dropped.
+
+### DELIVERABLES STILL TODO (Unicorn track — what's actually judged)
+Auto-screener inspects **GitHub repo + slide deck (PDF) + hosted URL** for AMD usage
+(NOT the video). AMD usage = hard requirement or DISQUALIFIED. Then human judges.
+- [ ] Clean PUBLIC demo repo (AMD/Fireworks/Kimi code VISIBLE) — keep prod repo private
+- [ ] Slide deck (PDF) with an explicit "runs on AMD via Fireworks" slide
+- [ ] Demo video (Quests hero: convert → click Claim → click X)
+- [ ] Hosted URL = live Render app running real Kimi (USE_STUB=false)
+
+### HACKATHON FACTS
+- AMD Developer Hackathon ACT II (lablab.ai). Submit by **July 11, 15:00 UTC**.
+- Track 3 Unicorn: repo + video + deck (+ optional hosted URL). No Docker for Track 3.
+- Credits: $50 Fireworks hackathon credit REDEEMED + active ($50 balance confirmed).
+  Separate $100 AMD Cloud + $50 Fireworks new-member credit still on 2–3 day approval.
+- Also registered: HTB Cyber Apocalypse CTF (July 24–29, team up to 30, bringing a friend).
+- CC cert (ISC2) deadline July 31.
+
+---
+
+## 🟢🟢🟢 SESSION 2026-07-06 — QUEST FRAME DEMO-PREP: STROKES + CLAIM-BUTTON FINDING (supersedes all below)
 
 Read the live Quest Frame export JSON to validate it as the hackathon HERO demo UI.
 This was a fidelity/wireability AUDIT of the JSON — two definitive findings, one queued

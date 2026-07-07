@@ -372,6 +372,18 @@ local function injectIdentity(inst, node)
 	if node.prefixes and #node.prefixes > 0 then
 		inst:SetAttribute("Figblox_Prefixes", table.concat(node.prefixes, ","))
 	end
+	-- Store STRUCTURE-BASED interactivity detection (from code.ts v1.5+).
+	-- These let collectInteractive wire elements by inferred role, not name.
+	if node.interactive then
+		inst:SetAttribute("Bloxig_Interactive", true)
+		inst:SetAttribute("Bloxig_RoleHint", node.roleHint or "generic")
+		if node.uiContext then
+			if node.uiContext.text  then inst:SetAttribute("Bloxig_CtxText",  node.uiContext.text)  end
+			if node.uiContext.zoneX then inst:SetAttribute("Bloxig_CtxZoneX", node.uiContext.zoneX) end
+			if node.uiContext.zoneY then inst:SetAttribute("Bloxig_CtxZoneY", node.uiContext.zoneY) end
+			if node.uiContext.rowMember then inst:SetAttribute("Bloxig_CtxRow", true) end
+		end
+	end
 end
 
 -- ── Auto-grid: add a UIGridLayout to a scroll/grid container, sizing the
@@ -700,12 +712,13 @@ end
 -- LocalScript. Fails safe — never breaks the import if the AI call fails.
 -- ════════════════════════════════════════════════════════════════
 
--- Names that signal an interactive element (Bloxig auto-detect: reads the
--- tree and infers intent, so users never have to tag buttons in Figma).
+-- Names that signal an interactive element (FALLBACK only — used when the Figma
+-- side didn't stamp structural detection, e.g. old exports or loose text).
 local INTERACTIVE_PATTERNS = {
 	"claim", "close", "cross", "redeem", "buy", "purchase", "shop",
 	"confirm", "cancel", "play", "start", "next", "back", "exit",
 	"submit", "tab", "button", "btn", "ok", "yes", "no", "select",
+	"premium", "get", "unlock", "equip", "level", "tier",
 }
 
 local function nameLooksInteractive(name)
@@ -716,27 +729,48 @@ local function nameLooksInteractive(name)
 	return false
 end
 
--- Map a name to a behavior hint the AI uses to decide what the click does.
+-- Map a name/text to a behavior hint (fallback when no structural roleHint).
 local function intentHint(name)
 	local n = string.lower(name or "")
 	if n:find("close") or n:find("cross") or n == "x" or n == "button" or n:find("exit") then
 		return "close"
-	elseif n:find("claim") or n:find("redeem") then
+	elseif n:find("claim") or n:find("redeem") or n:find("collect") then
 		return "claim"
-	elseif n:find("tab") then
+	elseif n:find("tab") or n:find("level") or n:find("tier") then
 		return "tab"
 	end
 	return "generic"
 end
 
--- Auto-detect interactive elements. Real buttons are used as-is; visible
--- elements that look interactive (by name) get a TRANSPARENT clickable
--- TextButton overlaid on top (visuals untouched, now clickable). Returns a
--- list of { name, className, hint } with UNIQUE names so duplicates (e.g.
--- three "Claim"s) each wire independently.
+-- Overlay a transparent, full-size clickable TextButton on a visible element so
+-- it becomes clickable without touching the visuals. Returns the overlay.
+local function overlayButton(inst, name)
+	local btn = Instance.new("TextButton")
+	btn.Name                   = name
+	btn.Size                   = UDim2.fromScale(1, 1)
+	btn.Position               = UDim2.fromScale(0, 0)
+	btn.AnchorPoint            = Vector2.new(0, 0)
+	btn.BackgroundTransparency = 1
+	btn.Text                   = ""
+	btn.ZIndex                 = 50
+	btn.Active                 = true
+	btn.Selectable             = true
+	btn.Parent                 = inst
+	return btn
+end
+
+-- HYBRID auto-detect. Three sources, all name-independent where possible:
+--   1. Figma STRUCTURAL detection (Bloxig_Interactive attr, set by code.ts v1.5+)
+--      — real buttons found by structure/position (e.g. a rasterized close btn).
+--   2. Real Roblox buttons/inputs already in the tree (from prefixes).
+--   3. Loose visible elements whose NAME looks interactive (fallback for text
+--      tabs/claims that the Figma side left for us).
+-- Each detected element gets a transparent overlay (so even baked images and
+-- loose text become clickable) with a UNIQUE name and a role hint + context.
 local function collectInteractive(root)
 	local out  = {}
 	local used = {}
+	local seen = {}   -- instances already handled (dedup)
 
 	local function uniqueName(base)
 		local nm, i = base, 1
@@ -745,31 +779,48 @@ local function collectInteractive(root)
 		return nm
 	end
 
-	-- snapshot first — we add overlay children during the loop
+	local function ctxOf(inst)
+		return {
+			text  = inst:GetAttribute("Bloxig_CtxText"),
+			zoneX = inst:GetAttribute("Bloxig_CtxZoneX"),
+			zoneY = inst:GetAttribute("Bloxig_CtxZoneY"),
+			rowMember = inst:GetAttribute("Bloxig_CtxRow") or nil,
+		}
+	end
+
 	local descendants = root:GetDescendants()
 
 	for _, inst in ipairs(descendants) do
-		if inst:IsA("ImageButton") or inst:IsA("TextButton") or inst:IsA("TextBox") then
-			-- already interactive
+		if seen[inst] then
+			-- already handled
+
+		-- (1) STRUCTURAL detection from the Figma side ─────────────────
+		elseif inst:GetAttribute("Bloxig_Interactive") then
+			seen[inst] = true
+			local role = inst:GetAttribute("Bloxig_RoleHint") or "generic"
+			if inst:IsA("GuiButton") or inst:IsA("TextBox") then
+				local nm = uniqueName(inst.Name)
+				if nm ~= inst.Name then inst.Name = nm end
+				table.insert(out, { name = nm, className = inst.ClassName, hint = role, context = ctxOf(inst) })
+			elseif inst:IsA("GuiObject") then
+				local nm = uniqueName(inst.Name .. "Click")
+				overlayButton(inst, nm)
+				table.insert(out, { name = nm, className = "TextButton", hint = role, context = ctxOf(inst) })
+			end
+
+		-- (2) already a real interactive instance ─────────────────────
+		elseif inst:IsA("ImageButton") or inst:IsA("TextButton") or inst:IsA("TextBox") then
+			seen[inst] = true
 			local nm = uniqueName(inst.Name)
-			if nm ~= inst.Name then inst.Name = nm end -- de-dupe real buttons too
+			if nm ~= inst.Name then inst.Name = nm end
 			table.insert(out, { name = nm, className = inst.ClassName, hint = intentHint(nm) })
 
+		-- (3) FALLBACK: loose visible element whose name looks interactive ─
 		elseif (inst:IsA("TextLabel") or inst:IsA("Frame") or inst:IsA("ImageLabel"))
 			and nameLooksInteractive(inst.Name) then
-			-- promote: overlay a transparent, full-size clickable button
-			local nm  = uniqueName(inst.Name .. "Click")
-			local btn = Instance.new("TextButton")
-			btn.Name                   = nm
-			btn.Size                   = UDim2.fromScale(1, 1)
-			btn.Position               = UDim2.fromScale(0, 0)
-			btn.AnchorPoint            = Vector2.new(0, 0)
-			btn.BackgroundTransparency = 1
-			btn.Text                   = ""
-			btn.ZIndex                 = 50
-			btn.Active                 = true
-			btn.Selectable             = true
-			btn.Parent                 = inst
+			seen[inst] = true
+			local nm = uniqueName(inst.Name .. "Click")
+			overlayButton(inst, nm)
 			table.insert(out, { name = nm, className = "TextButton", hint = intentHint(inst.Name) })
 		end
 	end

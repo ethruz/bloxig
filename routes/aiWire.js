@@ -164,12 +164,19 @@ function buildSystemPrompt() {
     '',
     'Each element you are given has a "hint" telling you its intended behavior:',
     '- "close": when clicked, set root.Visible = false (hide the whole panel).',
-    '- "claim": when clicked, give visible feedback then disable further clicks:',
-    '    if the button\'s Parent is a TextLabel/TextButton, set Parent.Text = "Claimed!";',
-    '    set the button.Active = false; print("[Bloxig] reward hook: " .. button.Name).',
-    '    Use a local `claimed` flag so it only fires once.',
+    '- "claim": the element is a TRANSPARENT overlay button — NEVER set its own .Text',
+    '    (that shows ugly black text). Instead give feedback on the VISIBLE element,',
+    '    which is the overlay button\'s Parent:',
+    '      local label = btn.Parent',
+    '      if label and (label:IsA("TextLabel") or label:IsA("TextButton")) then',
+    '        label.Text = "Claimed!"',
+    '      end',
+    '    Use a local `claimed` flag so it only fires once, set btn.Active = false,',
+    '    and print("[Bloxig] reward hook: " .. btn.Name).',
     '- "tab": clicking shows the matching *Content frame and hides sibling *Content frames.',
     '- "generic": print("[Bloxig] clicked " .. button.Name) on click.',
+    '',
+    'NEVER set .Text on an overlay/transparent button — always target its Parent label.',
     '',
     'Rules you MUST follow:',
     '- Output ONLY valid Luau code. No explanations, no markdown fences.',
@@ -183,14 +190,26 @@ function buildSystemPrompt() {
 
 function buildUserPrompt(elements) {
   const list = elements
-    .map((e) => `- ${e.name} (${e.className}) [hint: ${e.hint || 'generic'}]`)
+    .map((e) => {
+      const c = e.context || {};
+      const bits = [];
+      if (c.text)      bits.push(`text:"${String(c.text).slice(0, 30)}"`);
+      if (c.zoneY || c.zoneX) bits.push(`pos:${c.zoneY || 'middle'}-${c.zoneX || 'center'}`);
+      if (c.rowMember) bits.push('part-of-row');
+      const ctx = bits.length ? ` {${bits.join(', ')}}` : '';
+      return `- ${e.name} (${e.className}) [hint: ${e.hint || 'generic'}]${ctx}`;
+    })
     .join('\n');
   return [
-    'Here are the interactive UI elements Bloxig auto-detected, each with a behavior hint:',
+    'Here are the interactive UI elements Bloxig auto-detected by STRUCTURE (not by',
+    'layer name). Each has a hint (a first guess) and context (its text + position',
+    'zone + whether it sits in an evenly-spaced row). Use the context to refine the',
+    'role if the hint seems wrong — e.g. a small element at top-right with text "x"',
+    'is a close button; several same-size elements in a row are tabs.',
     '',
     list,
     '',
-    'Write a single LocalScript that wires each element according to its hint.',
+    'Write a single LocalScript that wires each element by its (possibly refined) role.',
     'Return only the Luau code.',
   ].join('\n');
 }

@@ -752,9 +752,11 @@ local function overlayButton(inst, name)
 	btn.AnchorPoint            = Vector2.new(0, 0)
 	btn.BackgroundTransparency = 1
 	btn.Text                   = ""
-	btn.ZIndex                 = 50
+	btn.ZIndex                 = 10000        -- above baked art / siblings
 	btn.Active                 = true
 	btn.Selectable             = true
+	btn.Modal                  = true         -- capture the click over anything below
+	btn.AutoButtonColor        = false
 	btn.Parent                 = inst
 	return btn
 end

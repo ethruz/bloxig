@@ -222,8 +222,35 @@ function buildUserPrompt(elements) {
   ].join('\n');
 }
 
+// Robustly clean the model output into valid Luau. LLMs are non-deterministic:
+// they sometimes wrap code in ```fences```, add a prose sentence before/after,
+// or omit `local root = script.Parent`. This guarantees a script that compiles.
 function stripFences(s) {
-  return s.replace(/```lua\s*/gi, '').replace(/```\s*/g, '').trim();
+  let out = s || '';
+
+  // 1. If there's a fenced code block, keep ONLY its contents.
+  const fenced = out.match(/```(?:lua|luau)?\s*([\s\S]*?)```/i);
+  if (fenced) out = fenced[1];
+
+  // 2. Remove any stray fence markers and zero-width/BOM chars.
+  out = out.replace(/```/g, '').replace(/\uFEFF/g, '').trim();
+
+  // 3. Drop leading lines that aren't Luau (prose like "Here is the script:").
+  //    A Luau line starts with a keyword, comment, identifier, or is blank.
+  const luaStart = /^\s*(--|local\b|function\b|if\b|for\b|while\b|do\b|return\b|end\b|repeat\b|[A-Za-z_][\w.]*\s*[:.(=]|game\b|script\b|workspace\b)/;
+  const lines = out.split('\n');
+  let start = 0;
+  while (start < lines.length && lines[start].trim() !== '' && !luaStart.test(lines[start])) {
+    start++;
+  }
+  out = lines.slice(start).join('\n').trim();
+
+  // 4. Guarantee the root handle exists (Kimi sometimes omits it).
+  if (!/local\s+root\s*=/.test(out)) {
+    out = 'local root = script.Parent\n' + out;
+  }
+
+  return out;
 }
 
 module.exports = router;

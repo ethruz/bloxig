@@ -340,7 +340,91 @@ node scripts/seed.js
 # 🟢 CURRENT STATE (most recent — supersedes older notes above)
 # ============================================================
 
-## 🟢🟢🟢 SESSION 2026-07-07 — AI INTERACTION LAYER SHIPPED + LIVE (NEWEST, supersedes all below)
+## 🟢🟢🟢 SESSION 2026-07-07b — STRUCTURE-BASED DETECTION (name-independent) SHIPPED (NEWEST, supersedes all below)
+
+**THE UPGRADE: detection no longer depends on layer NAMES.** Earlier today the AI
+wiring worked but detection was name-matching (fragile — Battle Pass = only 1
+element found). Now it detects interactive elements by STRUCTURE + POSITION + TEXT,
+so it works on ANY design regardless of naming. Battle Pass went **1 → 4 detected.**
+
+### Why we did it (the insight)
+User's own realization: name-matching is a whitelist, not automation. A user who
+names a button "Btn_Dismiss" / "collectReward" / "Group 47" / non-English falls
+through. Real fix: detect by what an element IS (shape/fill/text/position), let the
+AI infer role. VALIDATED by prior art research this session:
+- **Locofy** (Figma→code startup): their "Classic" needed manual tagging (our pain);
+  "Lightning" automated it. CTO: LLM exposure <5% — heuristics for structure, LLM
+  only for light semantic tasks. EXACTLY our Heuristic-Filter → LLM-Classifier split.
+- **Alibaba UISCGD** (paper): semantic UI grouping (cards/lists/tabs) from view
+  hierarchy WITHOUT manual annotation. Peer-reviewed proof structure-detection works.
+- **Our moat clarified:** the technique is known; NOBODY does it for Roblox/Luau.
+  Edge = underserved platform, not novel AI. Strong hackathon pitch framing.
+- Collaboration model established: Claude + web research + Gemini (2nd architecture
+  opinion) + user (ground truth). Gemini gave the 3-gate rule, tab-row + dedup algos.
+
+### What shipped (structure detection)
+1. **`code.ts` v1.5.1 — detection pass** (`detectInteractivity` + helpers), runs on
+   the Figma node (true pixel geometry, no Roblox edit-mode-zero problem):
+   - **`isButtonCandidateByStructure`**: 3-gate rule (Gemini's design) —
+     Gate 1 visual backing (fill/stroke OR **rasterized image** on node or shallow
+     descendant), Gate 2 has-text-but-not-a-2+-card-grid, Gate 3 size/aspect sanity
+     + >90000px² banner guardrail (so headers aren't buttons).
+   - **`detectRowMembership`**: evenly-spaced sibling row = tabs (uniform gap < width),
+     distinguished from spread-out card grids.
+   - **`inferRoleHint`**: first-guess role from text + position zone (top-right sq = close).
+   - Stamps `interactive`/`roleHint`/`uiContext{text,zoneX,zoneY,aspect,rowMember}` on node.
+   - Name signals kept only as a WEAK booster (nameSignal || structSignal), never the gate.
+2. **TWO bugs found + fixed via curl-JSON diagnostics** (didn't guess — read the data):
+   - Figma GROUPS are transparent (fill is on a child rect) → Gate 1 now checks
+     DESCENDANTS (`backingWithin`), not just the node.
+   - **Auto-rasterized buttons** (e.g. Exit = baked red hexagon PNG, empty fills,
+     isRaster=true): (a) Gate 1 now treats `isRaster`/`imageName` as visual backing;
+     (b) `serialiseNode` returned early on raster nodes BEFORE detection ran — moved
+     `detectInteractivity` INTO the rasterize branch. This makes ANY baked button
+     wireable (common — fancy game buttons get rasterized).
+3. **`Generator.lua` — HYBRID `collectInteractive`** (3 sources, dedup'd via `seen`):
+   (1) STRUCTURAL: reads `Bloxig_Interactive`/`Bloxig_RoleHint`/`Bloxig_Ctx*` attrs
+   stamped in `injectIdentity` from the Figma detection → overlays transparent
+   TextButton, passes role+context. (2) real Roblox buttons/inputs. (3) FALLBACK:
+   loose visible elements whose name looks interactive (for loose-text tabs/claims
+   the Figma side skips). Unique names for dupes.
+4. **`aiWire.js` — context-aware prompt**: sends each element's text + position zone
+   + row-membership; tells Kimi to REFINE the role from context (top-right "x" = close,
+   same-size row = tabs). Kimi reasons about structure, not names.
+
+### VERIFIED (Battle Pass, iPhone XR preview)
+`Auto-detected 4 interactive element(s)` → `AI interaction script attached (4 elements)`.
+Explorer shows ExitClick / GetPremiumClick / TierClick overlays auto-created.
+- ✅ Exit (structural, rasterized close button — the hard case, works)
+- ✅ GetPremium (structural button)
+- ⚠️ Tier — MARGINAL false positive (a label caught by the `tier` name-fallback).
+  Harmless (invisible no-op overlay) but not a real button. Trade-off of wider net;
+  can tighten later. Not a blocker.
+
+### STILL OPEN / NEXT
+- Tighten fallback to reduce label false-positives (e.g. Tier) — low priority.
+- Tab CONTENT-switching + scroll = still ROADMAP (detection makes tabs clickable;
+  actual content-swap not built).
+- Hover/animations = ROADMAP.
+- Model still `kimi-k2p6` (Gemma not serverless on this account). Fine for Unicorn track.
+
+### DELIVERABLES (Unicorn track — deadline July 11, still TODO)
+Auto-screener reads repo + slide deck (PDF) + hosted URL for AMD usage (or DISQUALIFIED).
+- [ ] Clean PUBLIC demo repo (AMD/Fireworks/Kimi code visible; prod repo stays private)
+- [ ] Slide deck (PDF) w/ explicit AMD-usage slide + the Locofy/Alibaba "validated approach" framing
+- [ ] Demo video (Quests hero + now Battle Pass generalization)
+- [ ] Hosted URL = live Render app w/ real Kimi
+
+### FILE STATE (all in /outputs, compiled + verified)
+- `code.ts` / `code.js` v1.5.1 (Claude compiled the .js — user doesn't need to; just replace both)
+- `Generator.lua` (hybrid detection, luac-checked)
+- `aiWire.js` (context prompt)
+- Figma plugin gotcha: editing code.ts needs recompile; Figma CACHES code.js — must
+  fully quit/reopen Figma to load a new build. Version string is the proof it loaded.
+
+---
+
+## 🟢🟢🟢 SESSION 2026-07-07 — AI INTERACTION LAYER SHIPPED + LIVE (supersedes all below)
 
 **THE BIG ONE: Bloxig now makes converted UIs WORK, not just look right.** The AI
 interaction layer is built, deployed, and demonstrated end-to-end. This is the

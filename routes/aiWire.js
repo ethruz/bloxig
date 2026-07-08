@@ -9,10 +9,10 @@
 const express = require('express');
 const router = express.Router();
 
-const USE_STUB = true; // <-- flip to false when FIREWORKS_API_KEY is live
+const USE_STUB = false; // live Kimi (FIREWORKS_API_KEY set in Render)
 
 const FIREWORKS_URL = 'https://api.fireworks.ai/inference/v1/chat/completions';
-const MODEL = 'accounts/fireworks/models/gemma-4-27b-it'; // confirm exact id in Fireworks dashboard
+const MODEL = 'accounts/fireworks/models/kimi-k2p6'; // serverless on this account
 
 router.post('/api/ai/wire', async (req, res) => {
   try {
@@ -72,6 +72,9 @@ function generateStubLuau(elements) {
   const lines = [];
   lines.push('-- Bloxig AI interaction layer (stub build)');
   lines.push('local root = script.Parent');
+  lines.push('local UIS = game:GetService("UserInputService")');
+  lines.push('UIS.MouseBehavior = Enum.MouseBehavior.Default');
+  lines.push('UIS.MouseIconEnabled = true');
   lines.push('');
 
   for (const el of elements) {
@@ -181,6 +184,11 @@ function buildSystemPrompt() {
     'Rules you MUST follow:',
     '- Output ONLY valid Luau code. No explanations, no markdown fences.',
     '- local root = script.Parent',
+    '- At the TOP of the script, keep the mouse free + visible so the UI is clickable',
+    '  in Play mode:',
+    '    local UIS = game:GetService(\"UserInputService\")',
+    '    UIS.MouseBehavior = Enum.MouseBehavior.Default',
+    '    UIS.MouseIconEnabled = true',
     '- Find each element by its exact name: root:FindFirstChild(name, true).',
     '- Connect with element.MouseButton1Click:Connect(function() ... end).',
     '- Guard EVERY element access with an if check so a missing element never errors.',

@@ -16,7 +16,7 @@
 | **Folder on disk** | `~/Desktop/bloxig/` |
 | **Live URL** | https://bloxig.onrender.com (Render free tier, Singapore) |
 | **GitHub** | github.com/ethruz/bloxig (PRIVATE) |
-| **Database** | MongoDB Atlas cloud (cluster0.yqbiygk.mongodb.net/bloxig) |
+| **Database** | MongoDB Atlas cloud (<your-cluster>.mongodb.net/bloxig) |
 | **Payments** | Lemon Squeezy (merchant of record) — built + tested in TEST MODE |
 
 ---
@@ -222,7 +222,7 @@ bloxig/               ← folder name on disk
 
 ```env
 PORT=3000
-MONGODB_URI=mongodb+srv://...@cluster0.yqbiygk.mongodb.net/bloxig   # ONE LINE ONLY
+MONGODB_URI=mongodb+srv://...@<your-cluster>.mongodb.net/bloxig   # ONE LINE ONLY
 SESSION_SECRET=...
 JWT_SECRET=...
 NODE_ENV=production
@@ -340,7 +340,96 @@ node scripts/seed.js
 # 🟢 CURRENT STATE (most recent — supersedes older notes above)
 # ============================================================
 
-## 🟢🟢🟢 SESSION 2026-07-07b — STRUCTURE-BASED DETECTION (name-independent) SHIPPED (NEWEST, supersedes all below)
+## 🟢🟢🟢 SESSION 2026-07-08 — FEATURE WORKING + DECK DONE, VIDEO NEXT (NEWEST, supersedes all below)
+
+**THE CORE FEATURE NOW WORKS END-TO-END, LIVE.** Spent today fixing the last chain
+of bugs so the AI interaction actually functions in Play mode, plus started the
+hackathon deliverables. Deadline: **July 11** (~3 days). Track 3 / Unicorn.
+
+### Bugs found + fixed today (the demo went from "nothing works" → fully working)
+1. **Backend was serving the STUB, not Kimi.** The deployed `aiWire.js` still had
+   `USE_STUB = true` + the old broken `gemma-4-27b-it` model. Local file was only
+   half-updated (had the context prompt, not the flag/model). FIXED: `USE_STUB = false`
+   + `MODEL = 'accounts/fireworks/models/kimi-k2p6'`.
+2. **Mouse disappeared in Play mode** → clicks couldn't reach the UI. FIXED: generated
+   script now sets `UserInputService.MouseBehavior = Default` + `MouseIconEnabled = true`
+   at the top (added to both the Kimi prompt and the stub).
+3. **Overlay buttons weren't receiving clicks** (Z-order). The transparent overlay was
+   `ZIndex=50`, but baked art rendered above it and ate the click. DIAGNOSED with a
+   red-box test (made the overlay visible → confirmed it existed + was sized right →
+   confirmed clicks landed once ZIndex/Modal bumped). FIXED in `Generator.lua`
+   `overlayButton`: `ZIndex = 10000`, `Modal = true`, `AutoButtonColor = false`.
+   Modal is the key — it captures the click over anything below. Applies to ALL
+   auto-rasterized/layered UIs, not just Battle Pass.
+4. **Kimi output was non-deterministic → syntax errors.** Sometimes omitted
+   `local root = script.Parent`, sometimes wrapped in ```fences``` or added prose →
+   `Incomplete statement` on line 1. FIXED: hardened `stripFences` in `aiWire.js` to:
+   unwrap fenced blocks, strip leading prose, remove BOM, and INJECT
+   `local root = script.Parent` if missing. Tested against all 4 failure modes → all
+   now produce valid compiling Luau. (Production-hardening for a non-deterministic model.)
+
+### VERIFIED WORKING (Battle Pass + Quests)
+Import → auto-detect → Kimi wires → **click X → panel CLOSES**, click Claim → reacts,
+in Play mode, cursor visible. The full pipeline is real and reliable now.
+
+### DELIVERABLES STATUS (Unicorn track, deadline July 11)
+- ✅ **Public demo repo** `github.com/ethruz/bloxig-ai-demo` — DONE. Contains
+  `routes/aiWire.js`, `roblox-plugin/src/Generator.lua`, `detection.ts` (structure-
+  detection showcase, ZERO engine internals leaked), and a strong README leading with
+  the AMD/Fireworks/Kimi story. Made via fresh `git init` (no private history).
+  Note: keep the FULL product private (`ethruz/bloxig`); this is a scoped demo repo.
+  (Optional polish: add 1-2 before/after screenshots to README; clean .DS_Store.)
+- ✅ **Hosted URL** — bloxig.onrender.com (live, running real Kimi).
+- ✅ **Slide deck — DONE.** `Bloxig_Hackathon_Deck.pptx/.pdf`, 9 slides, blue logo.
+  Structure: Title → Problem → Solution → How it works → Powered by AMD (+ Kimi angle)
+  → Moat → How it scales (neutral-IR/adapters diagram) → Built & shipping (REAL pricing:
+  Free/$12 Pro/$49 Pro Plus) → Roadmap/close. Fixed: real pricing (not $99/yr), reframed
+  traction to not imply users (0 users), added scalability slide, added Kimi-as-
+  deliberate-choice. ⚠️ ONE caveat to verify: the "real product, not a prototype" line —
+  confirm lablab Unicorn rules ALLOW pre-existing products (the AI interaction layer IS
+  the new hackathon build; if rules require all-new, reword to emphasize that).
+- ❌ **Demo video** — NOT started. Recording TOMORROW (July 9). ~2 min (check lablab cap).
+  Hero = Quests UI. Money shot = the click that WORKS (X closes, Claim reacts). Must
+  mention AMD. Frame honestly: "AI auto-detects interactive elements + generates click
+  behaviour (hard part = detection, not the code); tabs/animations = roadmap." Don't oversell.
+- ❌ **SUBMIT** on lablab before July 11, 8:45 PM NPT (repo + deck PDF + video + hosted URL).
+
+### REMAINING STEPS (in order) — as of end of 07-08
+1. (tomorrow) Quick sanity re-test the demo works (Render can sleep; plugin state resets).
+2. (tomorrow) Record the demo video — script not written yet; ask Claude for shot list.
+3. Verify lablab rules on pre-existing products (5 min) → confirm/reword deck line.
+4. Submit before deadline. ~2.5 days of buffer — comfortable, not a scramble.
+NOTE: A video shot-by-shot script was OFFERED but user deferred — write it next session.
+
+### HACKATHON FACTS (from Discord announcements 07-08)
+- Track 3 Unicorn: submissions show "Qualified (preview)" → AMD-verified by screener,
+  then human judges set final standings. ~24 Unicorn submissions competing.
+- ⚠️ **ACTION: must create/join a TEAM on lablab dashboard** to get AMD GPU pod +
+  possibly to submit. Solo team is fine. VERIFY THIS — don't let it block submission.
+- All the Track 1 Docker/token/local-model announcements = NOT relevant (that's the
+  routing-agent track). Ignore.
+- Auto-screener inspects repo + deck (PDF) + hosted URL for AMD usage (or disqualified).
+  Video is for human judges only (not auto-processed).
+
+### SCOPE DECISIONS (deliberate, don't reopen under deadline)
+- **Tab CONTENT-switching = NOT building.** The hard unsolved part is pairing each tab
+  with its content frame (ambiguous from structure; Battle Pass has one shared grid, no
+  per-tab content). Real research problem → roadmap. A cheap "tab highlight" (selected
+  tab changes color) is the only safe version, optional, only if core stays solid.
+- **Hover/animations = roadmap.** Don't risk the working demo chasing features.
+- Model stays kimi-k2p6 (Gemma not serverless on this account; Unicorn needs AMD compute,
+  which Fireworks satisfies regardless of model — Gemma bonus not worth the hassle).
+
+### IMMEDIATE NEXT (priority order)
+1. Verify team registration on lablab (unblocks submission).
+2. Screen-record the WORKING demo NOW (before it can break).
+3. Finish deck (pricing + scalability slide).
+4. Write video script → edit video.
+5. Submit before July 11, 8:45 PM NPT.
+
+---
+
+## 🟢🟢🟢 SESSION 2026-07-07b — STRUCTURE-BASED DETECTION (name-independent) SHIPPED (supersedes all below)
 
 **THE UPGRADE: detection no longer depends on layer NAMES.** Earlier today the AI
 wiring worked but detection was name-matching (fragile — Battle Pass = only 1

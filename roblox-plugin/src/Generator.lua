@@ -830,6 +830,54 @@ local function collectInteractive(root)
 	return out
 end
 
+-- Build a GUARANTEED-correct handler for one element from its role hint. The AI
+-- (Kimi) is non-deterministic and sometimes only wires a subset of elements, so
+-- we generate deterministic Luau per element and use it to fill any gaps — every
+-- detected element gets wired, reliably.
+local function handlerFor(el)
+	local name = el.name
+	local hint = el.hint or "generic"
+	local lines = {}
+	table.insert(lines, ('do -- %s (%s)'):format(name, hint))
+	table.insert(lines, ('\tlocal btn = root:FindFirstChild("%s", true)'):format(name))
+	table.insert(lines, '\tif btn and btn:IsA("GuiButton") then')
+	if hint == "close" then
+		table.insert(lines, '\t\tbtn.MouseButton1Click:Connect(function() root.Visible = false end)')
+	elseif hint == "claim" then
+		table.insert(lines, '\t\tlocal claimed = false')
+		table.insert(lines, '\t\tbtn.MouseButton1Click:Connect(function()')
+		table.insert(lines, '\t\t\tif claimed then return end')
+		table.insert(lines, '\t\t\tclaimed = true')
+		table.insert(lines, '\t\t\tbtn.Active = false')
+		table.insert(lines, '\t\t\tlocal label = btn.Parent')
+		table.insert(lines, '\t\t\tif label and (label:IsA("TextLabel") or label:IsA("TextButton")) then label.Text = "Claimed!" end')
+		table.insert(lines, ('\t\t\tprint("[Bloxig] reward hook: %s")'):format(name))
+		table.insert(lines, '\t\tend)')
+	else -- generic / tab / input
+		table.insert(lines, ('\t\tbtn.MouseButton1Click:Connect(function() print("[Bloxig] clicked %s") end)'):format(name))
+	end
+	table.insert(lines, '\tend')
+	table.insert(lines, 'end')
+	return table.concat(lines, "\n")
+end
+
+-- Deterministic script for ALL elements (mouse-unlock + a handler each).
+local function buildDeterministicScript(elements)
+	local out = {
+		'-- Bloxig AI interaction layer',
+		'local root = script.Parent',
+		'local UIS = game:GetService("UserInputService")',
+		'UIS.MouseBehavior = Enum.MouseBehavior.Default',
+		'UIS.MouseIconEnabled = true',
+		'',
+	}
+	for _, el in ipairs(elements) do
+		table.insert(out, handlerFor(el))
+		table.insert(out, '')
+	end
+	return table.concat(out, "\n")
+end
+
 function Generator.attachAIWiring(root)
 	local elements = collectInteractive(root)
 	if #elements == 0 then
@@ -837,6 +885,8 @@ function Generator.attachAIWiring(root)
 		return
 	end
 	print("[Bloxig] Auto-detected " .. #elements .. " interactive element(s); asking AI to wire...")
+
+	local source = nil
 
 	local ok, res = pcall(function()
 		return HttpService:RequestAsync({
@@ -847,26 +897,40 @@ function Generator.attachAIWiring(root)
 		})
 	end)
 
-	if not ok then
-		warn("[Bloxig] AI wiring request errored: " .. tostring(res))
-		return
-	end
-	if not res.Success then
-		warn("[Bloxig] AI wiring HTTP " .. tostring(res.StatusCode))
-		return
+	if ok and res.Success then
+		local okDecode, payload = pcall(function()
+			return HttpService:JSONDecode(res.Body)
+		end)
+		if okDecode and payload.luau and payload.luau ~= "" then
+			source = payload.luau
+			-- GAP-FILL: the AI is non-deterministic and may skip elements. For any
+			-- detected element whose name isn't referenced in the AI output, append
+			-- a deterministic handler so EVERY element is guaranteed wired.
+			local appended = 0
+			local extra = {}
+			for _, el in ipairs(elements) do
+				if not string.find(source, el.name, 1, true) then
+					table.insert(extra, handlerFor(el))
+					appended = appended + 1
+				end
+			end
+			if appended > 0 then
+				source = source .. "\n\n-- Bloxig: deterministic gap-fill (elements the AI omitted)\n" .. table.concat(extra, "\n")
+				print("[Bloxig] gap-filled " .. appended .. " element(s) the AI omitted.")
+			end
+		end
+	else
+		warn("[Bloxig] AI wiring request failed; using deterministic wiring.")
 	end
 
-	local okDecode, payload = pcall(function()
-		return HttpService:JSONDecode(res.Body)
-	end)
-	if not okDecode or not payload.luau or payload.luau == "" then
-		warn("[Bloxig] AI wiring returned no code.")
-		return
+	-- Fallback: if the AI gave nothing usable, wire everything deterministically.
+	if not source then
+		source = buildDeterministicScript(elements)
 	end
 
 	local ls = Instance.new("LocalScript")
 	ls.Name = "BloxigInteractions"
-	ls.Source = payload.luau        -- Studio plugins can set .Source
+	ls.Source = source
 	ls.Parent = root
 	print("[Bloxig] AI interaction script attached (" .. #elements .. " elements).")
 end

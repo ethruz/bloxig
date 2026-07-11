@@ -1,6 +1,4 @@
-// config/mailer.js — Nodemailer (Gmail SMTP) helper for Bloxig
-// Requires env vars: GMAIL_USER, GMAIL_APP_PASSWORD
-// (Generate an app password at myaccount.google.com/apppasswords — needs 2FA on.)
+
 
 const nodemailer = require('nodemailer');
 

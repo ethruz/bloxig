@@ -1,5 +1,5 @@
 // scripts/makeAdmin.js
-// Usage: node scripts/makeAdmin.js your@email.com
+
 require('dotenv').config();
 const mongoose = require('mongoose');
 const User     = require('../models/User');

@@ -155,7 +155,7 @@ app.use('/marketplace',  marketplaceRoutes);
 app.use('/profile',      profileRoutes);
 app.use('/api',          apiRoutes);
 app.use('/api',          imageUploadRoutes); 
-app.use('/',             aiWireRoutes);          // ← NEW: defines /api/ai/wire internally
+app.use('/api/ai/wire', aiWireRoutes);         // ← NEW: defines /api/ai/wire internally app.use('/', aiWireRoutes); -CHNAGES MADE  //
 app.use('/api/webhooks', webhookRoutes);
 
 // ── Landing Page ──────────────────────────────────────────────

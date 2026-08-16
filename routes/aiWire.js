@@ -15,7 +15,7 @@ const USE_STUB = false; // live Kimi (FIREWORKS_API_KEY set in Render)
 const FIREWORKS_URL = 'https://api.fireworks.ai/inference/v1/chat/completions';
 const MODEL = 'accounts/fireworks/models/kimi-k2p6'; // serverless on this account
 
-router.post('/api/ai/wire', verifyJWT, async (req, res) => {
+router.post('/', verifyJWT, async (req, res) => {
   try {
     const { elements } = req.body; // [{ name, className }, ...]
     if (!Array.isArray(elements) || elements.length === 0) {

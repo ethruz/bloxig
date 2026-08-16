@@ -1,25 +1,63 @@
-// routes/aiWire.js
-// Bloxig AI interaction layer.
-//
-// USE_STUB = true  -> generates working Luau locally (NO API key needed).
-//                     Use this NOW to prove the full round trip in Studio.
-// USE_STUB = false -> calls Gemma 4 via Fireworks (needs FIREWORKS_API_KEY).
-//                     Flip to this once your Fireworks credit is set in Render.
+// routes/aiWire.js — Bloxig AI interaction layer (HARDENED)
+// ============================================================
+// Mount in server.js as: app.use('/api/ai/wire', require('./routes/aiWire'))
+// Route path is '/' because the mount point already carries '/api/ai/wire'.
 
 const express = require('express');
-const router = express.Router();
+const router  = express.Router();
 const { verifyJWT } = require('../middleware/isAuthenticated');
 
-const USE_STUB = false; // live Kimi (FIREWORKS_API_KEY set in Render)
+const USE_STUB = false; // live Kimi via Fireworks
 
 const FIREWORKS_URL = 'https://api.fireworks.ai/inference/v1/chat/completions';
-const MODEL = 'accounts/fireworks/models/kimi-k2p6'; // serverless on this account
+const MODEL = 'accounts/fireworks/models/kimi-k2p6';
 
+// ── Per-user AI rate limiter (in-memory, single-instance safe) ──
+const AI_RATE_LIMIT = {
+  windowMs: 60 * 60 * 1000, // 1 hour
+  freeMax: 5,
+  proMax:  20,
+  lifetimeMax: 20
+};
+const userAiLimits = new Map(); // userId -> { count, resetTime }
+
+function checkAiRateLimit(userId, plan) {
+  const now = Date.now();
+  let limit;
+  if (plan === 'Free') limit = AI_RATE_LIMIT.freeMax;
+  else if (plan === 'Lifetime') limit = AI_RATE_LIMIT.lifetimeMax;
+  else limit = AI_RATE_LIMIT.proMax;
+
+  const entry = userAiLimits.get(userId);
+  if (!entry || now > entry.resetTime) {
+    userAiLimits.set(userId, { count: 1, resetTime: now + AI_RATE_LIMIT.windowMs });
+    return { allowed: true, remaining: limit - 1 };
+  }
+  if (entry.count >= limit) {
+    const minsLeft = Math.ceil((entry.resetTime - now) / 60000);
+    return { allowed: false, retryAfter: minsLeft };
+  }
+  entry.count++;
+  return { allowed: true, remaining: limit - entry.count };
+}
+
+// ── POST /api/ai/wire ─────────────────────────────────────────
 router.post('/', verifyJWT, async (req, res) => {
   try {
-    const { elements } = req.body; // [{ name, className }, ...]
+    const { elements } = req.body;
     if (!Array.isArray(elements) || elements.length === 0) {
       return res.status(400).json({ error: 'no_elements' });
+    }
+
+    // ── Rate limit check ──────────────────────────────────────
+    const userId = req.user._id.toString();
+    const plan   = req.user.subscription_status || 'Free';
+    const rateCheck = checkAiRateLimit(userId, plan);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        error: 'ai_rate_limit',
+        message: `AI wiring limit reached (${plan}: ${plan === 'Free' ? 5 : 20}/hour). Retry in ${rateCheck.retryAfter} minutes. Upgrade to Pro for more.`
+      });
     }
 
     if (USE_STUB) {
@@ -27,9 +65,9 @@ router.post('/', verifyJWT, async (req, res) => {
       return res.json({ luau, model: 'stub' });
     }
 
-    // ---- Real Gemma 4 via Fireworks ----
     if (!process.env.FIREWORKS_API_KEY) {
-      return res.status(500).json({ error: 'missing_fireworks_key' });
+      console.error('[AI Wire] FIREWORKS_API_KEY missing');
+      return res.status(500).json({ error: 'ai_service_unavailable' });
     }
 
     const fwRes = await fetch(FIREWORKS_URL, {
@@ -44,30 +82,33 @@ router.post('/', verifyJWT, async (req, res) => {
         temperature: 0.2,
         messages: [
           { role: 'system', content: buildSystemPrompt() },
-          { role: 'user', content: buildUserPrompt(elements) },
+          { role: 'user',   content: buildUserPrompt(elements) },
         ],
       }),
     });
 
     if (!fwRes.ok) {
-      const detail = await fwRes.text();
-      return res.status(502).json({ error: 'fireworks_failed', detail });
+      const detail = await fwRes.text().catch(() => 'unknown');
+      console.error('[AI Wire] Fireworks error:', fwRes.status, detail.slice(0, 200));
+      return res.status(502).json({ error: 'ai_generation_failed' });
     }
 
     const data = await fwRes.json();
     let luau = data.choices?.[0]?.message?.content || '';
     luau = stripFences(luau);
-    if (!luau) return res.status(502).json({ error: 'empty_generation' });
+    if (!luau) {
+      return res.status(502).json({ error: 'empty_generation' });
+    }
 
     return res.json({ luau, model: MODEL });
   } catch (err) {
-    return res.status(500).json({ error: 'server_error', detail: String(err) });
+    console.error('[AI Wire] Server error:', err);
+    return res.status(500).json({ error: 'server_error' });
   }
 });
 
 // ────────────────────────────────────────────────────────────
 // STUB: build working Luau from the element names (no AI needed).
-// Detects close/cross, claim, tabs, and text inputs by name.
 // ────────────────────────────────────────────────────────────
 function generateStubLuau(elements) {
   const lines = [];
@@ -79,11 +120,15 @@ function generateStubLuau(elements) {
   lines.push('');
 
   for (const el of elements) {
-    const raw = String(el.name || '');
-    const n = raw.toLowerCase();
-    const safe = raw.replace(/"/g, '\\"');
+    const raw  = String(el.name || '');
+    const n    = raw.toLowerCase();
+    // Properly escape for Lua strings: backslash FIRST, then quotes, then newlines
+    const safe = raw
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '');
 
-    // close / cross / X buttons -> hide the whole UI
     if (n.includes('close') || n.includes('cross') || n === 'x') {
       lines.push(`do -- ${safe} (close)`);
       lines.push(`  local btn = root:FindFirstChild("${safe}", true)`);
@@ -95,7 +140,6 @@ function generateStubLuau(elements) {
       continue;
     }
 
-    // claim buttons -> show a claimed state + reward hook
     if (n.includes('claim')) {
       lines.push(`do -- ${safe} (claim)`);
       lines.push(`  local btn = root:FindFirstChild("${safe}", true)`);
@@ -111,7 +155,6 @@ function generateStubLuau(elements) {
       continue;
     }
 
-    // tab buttons -> show matching content frame, hide sibling *Content frames
     if (n.includes('tab')) {
       const base = raw.replace(/tab/i, '');
       lines.push(`do -- ${safe} (tab)`);
@@ -130,7 +173,6 @@ function generateStubLuau(elements) {
       continue;
     }
 
-    // text inputs -> report value on focus lost (light touch)
     if (el.className === 'TextBox' || n.includes('input') || n.includes('search')) {
       lines.push(`do -- ${safe} (input)`);
       lines.push(`  local box = root:FindFirstChild("${safe}", true)`);
@@ -142,7 +184,6 @@ function generateStubLuau(elements) {
       continue;
     }
 
-    // generic button -> print on click so nothing is dead
     lines.push(`do -- ${safe} (generic)`);
     lines.push(`  local btn = root:FindFirstChild("${safe}", true)`);
     lines.push(`  if btn and btn:IsA("GuiButton") then`);
@@ -156,7 +197,7 @@ function generateStubLuau(elements) {
 }
 
 // ────────────────────────────────────────────────────────────
-// Real Gemma prompt (used when USE_STUB = false)
+// Prompt builders
 // ────────────────────────────────────────────────────────────
 function buildSystemPrompt() {
   return [
@@ -187,7 +228,7 @@ function buildSystemPrompt() {
     '- local root = script.Parent',
     '- At the TOP of the script, keep the mouse free + visible so the UI is clickable',
     '  in Play mode:',
-    '    local UIS = game:GetService(\"UserInputService\")',
+    '    local UIS = game:GetService("UserInputService")',
     '    UIS.MouseBehavior = Enum.MouseBehavior.Default',
     '    UIS.MouseIconEnabled = true',
     '- Find each element by its exact name: root:FindFirstChild(name, true).',
@@ -198,17 +239,27 @@ function buildSystemPrompt() {
 }
 
 function buildUserPrompt(elements) {
-  const list = elements
-    .map((e) => {
-      const c = e.context || {};
-      const bits = [];
-      if (c.text)      bits.push(`text:"${String(c.text).slice(0, 30)}"`);
-      if (c.zoneY || c.zoneX) bits.push(`pos:${c.zoneY || 'middle'}-${c.zoneX || 'center'}`);
-      if (c.rowMember) bits.push('part-of-row');
-      const ctx = bits.length ? ` {${bits.join(', ')}}` : '';
-      return `- ${e.name} (${e.className}) [hint: ${e.hint || 'generic'}]${ctx}`;
-    })
-    .join('\n');
+  const list = elements.map((e) => {
+    const c = e.context || {};
+    // SANITIZE: strip quotes, backslashes, newlines, control chars; hard cap length
+    const safeName = String(e.name || '')
+      .replace(/["\\]/g, '')           // remove quotes and backslashes
+      .replace(/[\n\r\t]/g, ' ')       // flatten whitespace
+      .replace(/[^\x20-\x7E]/g, '')    // strip non-printable
+      .slice(0, 50);                   // hard cap 50 chars
+
+    const safeText = c.text
+      ? String(c.text).slice(0, 30).replace(/["\\]/g, '')
+      : '';
+
+    const bits = [];
+    if (safeText) bits.push(`text:"${safeText}"`);
+    if (c.zoneY || c.zoneX) bits.push(`pos:${c.zoneY || 'middle'}-${c.zoneX || 'center'}`);
+    if (c.rowMember) bits.push('part-of-row');
+    const ctx = bits.length ? ` {${bits.join(', ')}}` : '';
+    return `- ${safeName} (${e.className}) [hint: ${e.hint || 'generic'}]${ctx}`;
+  }).join('\n');
+
   return [
     'Here are the interactive UI elements Bloxig auto-detected by STRUCTURE (not by',
     'layer name). Each has a hint (a first guess) and context (its text + position',
@@ -223,21 +274,12 @@ function buildUserPrompt(elements) {
   ].join('\n');
 }
 
-// Robustly clean the model output into valid Luau. LLMs are non-deterministic:
-// they sometimes wrap code in ```fences```, add a prose sentence before/after,
-// or omit `local root = script.Parent`. This guarantees a script that compiles.
 function stripFences(s) {
   let out = s || '';
-
-  // 1. If there's a fenced code block, keep ONLY its contents.
   const fenced = out.match(/```(?:lua|luau)?\s*([\s\S]*?)```/i);
   if (fenced) out = fenced[1];
-
-  // 2. Remove any stray fence markers and zero-width/BOM chars.
   out = out.replace(/```/g, '').replace(/\uFEFF/g, '').trim();
 
-  // 3. Drop leading lines that aren't Luau (prose like "Here is the script:").
-  //    A Luau line starts with a keyword, comment, identifier, or is blank.
   const luaStart = /^\s*(--|local\b|function\b|if\b|for\b|while\b|do\b|return\b|end\b|repeat\b|[A-Za-z_][\w.]*\s*[:.(=]|game\b|script\b|workspace\b)/;
   const lines = out.split('\n');
   let start = 0;
@@ -246,11 +288,9 @@ function stripFences(s) {
   }
   out = lines.slice(start).join('\n').trim();
 
-  // 4. Guarantee the root handle exists (Kimi sometimes omits it).
   if (!/local\s+root\s*=/.test(out)) {
     out = 'local root = script.Parent\n' + out;
   }
-
   return out;
 }
 

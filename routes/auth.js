@@ -1,19 +1,32 @@
-// routes/auth.js — Bloxig Authentication Routes
-const express  = require('express');
-const router   = express.Router();
-const passport = require('passport');
-const bcrypt   = require('bcryptjs');
-const User     = require('../models/User');
-const crypto   = require('crypto');
+// routes/auth.js — Bloxig Authentication Routes (hardened)
+//
+// Changes vs. original (see notes at bottom for wiring you must do in app.js):
+//   [SEC] Reset tokens are now hashed (sha256) at rest — raw token only goes in the email.
+//   [SEC] Session is regenerated on login + signup auto-login (session fixation).
+//   [SEC] returnTo redirect is restricted to local paths (open-redirect guard).
+//   [SEC] Rate limiting on /login, /forgot, /reset (brute force / email bombing).
+//   [FIX] Duplicate-email race now handled via Mongo E11000 in addition to findOne.
+//   [CLEANUP] Removed the dead unused regex in PASSWORD_RULES.
+//
+// Intentionally NOT changed (Copilot was wrong on these):
+//   - login's findByIdAndUpdate swallow is deliberate: a failed loginCount bump
+//     must not fail an already-successful login.
+//   - reset uses a single save(); if it fails nothing persists and the token stays
+//     valid, which is correct. Do NOT clear-then-resave.
+
+const express   = require('express');
+const router    = express.Router();
+const passport  = require('passport');
+const bcrypt    = require('bcryptjs');
+const crypto    = require('crypto');
+const rateLimit = require('express-rate-limit'); // npm i express-rate-limit
+const User      = require('../models/User');
 const { sendResetEmail } = require('../config/mailer');
 
 // ── Password validation rules ──────────────────────────────────
-// Min 8, Max 20, must have uppercase, lowercase, number, symbol
-const PASSWORD_RULES = {
-  minLength: 8,
-  maxLength: 20,
-  regex: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,20}$/
-};
+// NOTE: maxLength 20 is a product choice. It blocks passphrases and password-
+// manager output — consider raising to 64/128. Left as-is; change if you want.
+const PASSWORD_RULES = { minLength: 8, maxLength: 20 };
 
 function validatePassword(password) {
   if (!password || password.length < PASSWORD_RULES.minLength) {
@@ -35,6 +48,73 @@ function validateEmail(email) {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 }
+
+// Hash a reset token before storing / looking it up, so a DB leak can't be
+// replayed as an account takeover. The raw token is only ever sent by email.
+function hashToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+// Open-redirect guard: only allow same-site absolute paths.
+function safeLocalPath(target) {
+  if (
+    typeof target === 'string' &&
+    target.startsWith('/') &&
+    !target.startsWith('//') &&      // protocol-relative //evil.com
+    !target.startsWith('/\\')        // /\evil.com
+  ) {
+    return target;
+  }
+  return '/dashboard';
+}
+
+// ── Rate limiters ─────────────────────────────────────────────
+// IMPORTANT (Render): these key off req.ip. Behind Render's proxy you MUST set
+//   app.set('trust proxy', 1);
+// in app.js or every request looks like it comes from one IP.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10, // per IP per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    req.flash('error', 'Too many login attempts. Please wait a few minutes and try again.');
+    res.redirect('/auth/login');
+  }
+});
+
+const signupLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    req.flash('error', 'Too many sign-up attempts. Please wait a few minutes and try again.');
+    res.redirect('/auth/signup');
+  }
+});
+
+const forgotLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    req.flash('error', 'Too many requests. Please wait a while before trying again.');
+    res.redirect('/auth/forgot');
+  }
+});
+
+const resetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    req.flash('error', 'Too many attempts. Please request a new reset link.');
+    res.redirect('/auth/forgot');
+  }
+});
 
 // ── Country list ──────────────────────────────────────────────
 const COUNTRIES = [
@@ -62,21 +142,19 @@ router.get('/login', (req, res) => {
 });
 
 // ── POST /auth/login ──────────────────────────────────────────
-router.post('/login', (req, res, next) => {
+router.post('/login', loginLimiter, (req, res, next) => {
   const { email, password } = req.body;
 
-  // Basic input check
   if (!email || !password) {
     req.flash('error', 'Email and password are required.');
     return res.redirect('/auth/login');
   }
-
   if (!validateEmail(email)) {
     req.flash('error', 'Please enter a valid email address.');
     return res.redirect('/auth/login');
   }
 
-  passport.authenticate('local', async (err, user, info) => {
+  passport.authenticate('local', (err, user, info) => {
     if (err) return next(err);
 
     if (!user) {
@@ -84,21 +162,29 @@ router.post('/login', (req, res, next) => {
       return res.redirect('/auth/login');
     }
 
-    req.logIn(user, async (err) => {
-      if (err) return next(err);
+    // Capture returnTo before regenerate wipes the session.
+    const returnTo = safeLocalPath(req.session.returnTo);
 
-      // Update last login + count
-      try {
-        await User.findByIdAndUpdate(user._id, {
-          lastLogin:  new Date(),
-          $inc: { loginCount: 1 }
-        });
-      } catch (e) { /* non-fatal */ }
+    // Regenerate session to prevent session fixation, THEN log in so passport
+    // writes the user into the fresh session.
+    req.session.regenerate((regenErr) => {
+      if (regenErr) return next(regenErr);
 
-      // Redirect to intended page or dashboard
-      const returnTo = req.session.returnTo || '/dashboard';
-      delete req.session.returnTo;
-      return res.redirect(returnTo);
+      req.logIn(user, async (loginErr) => {
+        if (loginErr) return next(loginErr);
+
+        // Non-fatal: don't fail an authenticated login if this bump fails.
+        try {
+          await User.findByIdAndUpdate(user._id, {
+            lastLogin: new Date(),
+            $inc: { loginCount: 1 }
+          });
+        } catch (e) {
+          console.warn('[Auth] loginCount update failed (non-fatal):', e.message);
+        }
+
+        return res.redirect(returnTo);
+      });
     });
   })(req, res, next);
 });
@@ -111,30 +197,28 @@ router.get('/signup', (req, res) => {
     error:   req.flash('error')[0]   || null,
     success: req.flash('success')[0] || null,
     countries: COUNTRIES,
-    formData: {} // empty on fresh load
+    formData: {}
   });
 });
 
 // ── POST /auth/signup ─────────────────────────────────────────
-router.post('/signup', async (req, res) => {
+router.post('/signup', signupLimiter, async (req, res, next) => {
   const { firstName, lastName, email, password, confirmPassword, country } = req.body;
 
-  const renderError = (msg) => {
-    return res.render('pages/signup', {
-      title:    'Create account',
-      error:    msg,
-      success:  null,
-      countries: COUNTRIES,
-      formData: { firstName, lastName, email, country } // preserve entered data
-    });
-  };
+  const renderError = (msg) => res.render('pages/signup', {
+    title:    'Create account',
+    error:    msg,
+    success:  null,
+    countries: COUNTRIES,
+    formData: { firstName, lastName, email, country }
+  });
 
   // ── Field presence checks ────────────────────────────────────
   if (!firstName || firstName.trim().length === 0) return renderError('First name is required.');
   if (!lastName  || lastName.trim().length === 0)  return renderError('Last name is required.');
-  if (!email     || email.trim().length === 0)      return renderError('Email is required.');
-  if (!password)                                    return renderError('Password is required.');
-  if (!country   || country === '')                 return renderError('Please select your country.');
+  if (!email     || email.trim().length === 0)     return renderError('Email is required.');
+  if (!password)                                   return renderError('Password is required.');
+  if (!country   || country === '')                return renderError('Please select your country.');
 
   // ── Name length checks ───────────────────────────────────────
   if (firstName.trim().length > 50) return renderError('First name is too long (max 50 characters).');
@@ -151,40 +235,48 @@ router.post('/signup', async (req, res) => {
   if (password !== confirmPassword) return renderError('Passwords do not match.');
 
   try {
-    // ── Check existing email ─────────────────────────────────
-    const existing = await User.findOne({ email: email.toLowerCase().trim() });
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const existing = await User.findOne({ email: normalizedEmail });
     if (existing) return renderError('An account with this email already exists.');
 
-    // ── Hash password ────────────────────────────────────────
     const salt          = await bcrypt.genSalt(12);
     const password_hash = await bcrypt.hash(password, salt);
 
-    // ── Create user ──────────────────────────────────────────
     const user = new User({
-      firstName:   firstName.trim(),
-      lastName:    lastName.trim(),
-      email:       email.toLowerCase().trim(),
+      firstName:  firstName.trim(),
+      lastName:   lastName.trim(),
+      email:      normalizedEmail,
       password_hash,
-      country:     country.trim(),
-      lastLogin:   new Date(),
-      loginCount:  1
+      country:    country.trim(),
+      lastLogin:  new Date(),
+      loginCount: 1
     });
 
     await user.save();
 
-    // ── Auto login after signup ──────────────────────────────
-    req.login(user, (err) => {
-      if (err) {
-        req.flash('error', 'Account created! Please sign in.');
-        return res.redirect('/auth/login');
-      }
-      req.flash('success', `Welcome to Bloxig, ${user.firstName}!`);
-      res.redirect('/dashboard');
+    // Regenerate session before auto-login (session fixation).
+    req.session.regenerate((regenErr) => {
+      if (regenErr) return next(regenErr);
+
+      req.login(user, (loginErr) => {
+        if (loginErr) {
+          req.flash('error', 'Account created! Please sign in.');
+          return res.redirect('/auth/login');
+        }
+        req.flash('success', `Welcome to Bloxig, ${user.firstName}!`);
+        res.redirect('/dashboard');
+      });
     });
 
   } catch (err) {
+    // Handles the findOne→save race: two concurrent signups for the same email.
+    // Requires a unique index on email in the User schema:  email: { unique: true }
+    if (err && err.code === 11000) {
+      return renderError('An account with this email already exists.');
+    }
     console.error('[Auth] Signup error:', err);
-    renderError('Something went wrong. Please try again.');
+    return renderError('Something went wrong. Please try again.');
   }
 });
 
@@ -198,7 +290,6 @@ router.get('/logout', (req, res, next) => {
 });
 
 // ── GET /auth/forgot ──────────────────────────────────────────
-// Show the "enter your email" form.
 router.get('/forgot', (req, res) => {
   if (req.isAuthenticated()) return res.redirect('/dashboard');
   res.render('pages/forgot', {
@@ -209,9 +300,11 @@ router.get('/forgot', (req, res) => {
 });
 
 // ── POST /auth/forgot ─────────────────────────────────────────
-// Generate a token, save it on the user, email the reset link.
-// Always shows the same success message (don't reveal if an email exists).
-router.post('/forgot', async (req, res) => {
+// Always shows the same success message so we don't reveal whether an email
+// exists. NOTE: there is still a small timing side-channel — the "user exists"
+// path does DB writes + an email send. Rate limiting above is the practical
+// mitigation; fully closing it needs a background/queued send.
+router.post('/forgot', forgotLimiter, async (req, res) => {
   const { email } = req.body;
 
   if (!email || !validateEmail(email)) {
@@ -224,18 +317,16 @@ router.post('/forgot', async (req, res) => {
   try {
     const user = await User.findOne({ email: email.toLowerCase().trim() });
 
-    // Only actually send if the user exists — but DON'T reveal that either way.
     if (user) {
-      const token = crypto.randomBytes(32).toString('hex');
-      user.resetToken   = token;
-      user.resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      user.resetToken   = hashToken(rawToken);                       // store hash
+      user.resetExpires = new Date(Date.now() + 60 * 60 * 1000);     // 1 hour
       await user.save();
 
       try {
-        await sendResetEmail(user.email, token, user.firstName);
+        await sendResetEmail(user.email, rawToken, user.firstName);  // email raw token
       } catch (mailErr) {
         console.error('[Auth] Failed to send reset email:', mailErr.message);
-        // Roll back the token so a broken email send doesn't leave a dangling token
         user.resetToken   = null;
         user.resetExpires = null;
         await user.save();
@@ -254,11 +345,10 @@ router.post('/forgot', async (req, res) => {
 });
 
 // ── GET /auth/reset/:token ────────────────────────────────────
-// Show the "new password" form if the token is valid + not expired.
 router.get('/reset/:token', async (req, res) => {
   try {
     const user = await User.findOne({
-      resetToken:   req.params.token,
+      resetToken:   hashToken(req.params.token),   // hash before lookup
       resetExpires: { $gt: new Date() }
     });
 
@@ -269,8 +359,8 @@ router.get('/reset/:token', async (req, res) => {
 
     res.render('pages/reset', {
       title: 'Set a new password',
-      token: req.params.token,
-      error:   req.flash('error')[0]   || null,
+      token: req.params.token,   // pass the raw token back to the form
+      error:   req.flash('error')[0] || null,
       success: null
     });
   } catch (err) {
@@ -281,8 +371,7 @@ router.get('/reset/:token', async (req, res) => {
 });
 
 // ── POST /auth/reset/:token ───────────────────────────────────
-// Verify token, validate new password, hash + save, clear token.
-router.post('/reset/:token', async (req, res) => {
+router.post('/reset/:token', resetLimiter, async (req, res) => {
   const { password, confirmPassword } = req.body;
   const token = req.params.token;
 
@@ -295,7 +384,7 @@ router.post('/reset/:token', async (req, res) => {
 
   try {
     const user = await User.findOne({
-      resetToken:   token,
+      resetToken:   hashToken(token),   // hash before lookup
       resetExpires: { $gt: new Date() }
     });
 
@@ -304,16 +393,16 @@ router.post('/reset/:token', async (req, res) => {
       return res.redirect('/auth/forgot');
     }
 
-    // Validate the new password with the same rules as signup
     const passwordError = validatePassword(password);
     if (passwordError) return renderReset(passwordError);
     if (password !== confirmPassword) return renderReset('Passwords do not match.');
 
-    // Hash + save, then clear the token so it can't be reused
-    const salt          = await bcrypt.genSalt(12);
-    user.password_hash  = await bcrypt.hash(password, salt);
-    user.resetToken     = null;
-    user.resetExpires   = null;
+    // Single atomic-ish save: password + token clear together. If it fails,
+    // nothing persists and the token stays valid — correct behavior.
+    const salt         = await bcrypt.genSalt(12);
+    user.password_hash = await bcrypt.hash(password, salt);
+    user.resetToken    = null;
+    user.resetExpires  = null;
     await user.save();
 
     req.flash('success', 'Your password has been reset. Please sign in.');

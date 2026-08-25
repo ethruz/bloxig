@@ -314,44 +314,44 @@
         <div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:var(--r-md);padding:16px;">
           <p style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Your API Token</p>
 
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <code id="tokenDisplay" style="
-              font-size:11px;font-family:var(--font-mono);
-              color:var(--text-tertiary);
-              flex:1;word-break:break-all;
-              background:var(--bg-base);
-              border:1px solid var(--border-faint);
-              border-radius:var(--r-sm);
-              padding:10px 12px;
-              line-height:1.6;
+          <% if (typeof freshToken !== 'undefined' && freshToken) { %>
+            <!-- Shown exactly once, right after generation. Not stored server-side. -->
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <code id="tokenDisplay" style="
+                font-size:11px;font-family:var(--font-mono);color:var(--text-primary);
+                flex:1;word-break:break-all;background:var(--bg-base);
+                border:1px solid var(--border-faint);border-radius:var(--r-sm);
+                padding:10px 12px;line-height:1.6;
+              "><%= freshToken %></code>
+              <button onclick="copyToken('<%= freshToken %>')" id="copyBtn"
+                class="btn btn--ghost" style="height:34px;font-size:11px;flex-shrink:0;">Copy</button>
+            </div>
+            <p style="font-size:var(--text-xs);color:var(--gold);margin-top:8px;">
+              Copy this now — for your security it won't be shown again. If you lose it, generate a new one.
+            </p>
+          <% } else { %>
+            <div style="
+              font-size:11px;font-family:var(--font-mono);color:var(--text-tertiary);
+              background:var(--bg-base);border:1px solid var(--border-faint);
+              border-radius:var(--r-sm);padding:10px 12px;line-height:1.6;
             ">
-              <% if (user.apiToken) { %>
-                ••••••••••••••••••••••••••••••••••••••
+              <% if (user.apiTokenCreatedAt) { %>
+                Active token · created <%= new Date(user.apiTokenCreatedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) %>
+                <span style="color:var(--text-disabled);">· hidden for security</span>
               <% } else { %>
                 No token yet — generate one below
               <% } %>
-            </code>
-
-            <% if (user.apiToken) { %>
-              <button onclick="revealToken('<%= user.apiToken %>')"
-                class="btn btn--ghost" style="height:34px;font-size:11px;flex-shrink:0;">
-                Reveal
-              </button>
-              <button onclick="copyToken('<%= user.apiToken %>')" id="copyBtn"
-                class="btn btn--ghost" style="height:34px;font-size:11px;flex-shrink:0;">
-                Copy
-              </button>
-            <% } %>
-          </div>
+            </div>
+          <% } %>
         </div>
 
         <form action="/profile/generate-token" method="POST" style="margin-top:12px;">
           <button type="submit" class="btn btn--accent" style="height:38px;">
-            <%= user.apiToken ? 'Regenerate token' : 'Generate API token' %>
+            <%= user.apiTokenCreatedAt ? 'Regenerate token' : 'Generate API token' %>
           </button>
         </form>
         <p style="font-size:var(--text-xs);color:var(--text-tertiary);margin-top:8px;">
-          Regenerating will invalidate your old token immediately.
+          Regenerating immediately invalidates your old token.
         </p>
       </div>
 

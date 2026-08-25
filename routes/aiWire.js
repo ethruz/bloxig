@@ -21,6 +21,15 @@ const AI_RATE_LIMIT = {
 };
 const userAiLimits = new Map(); // userId -> { count, resetTime }
 
+// Evict expired entries hourly so the Map doesn't grow unbounded over time.
+// unref() so this timer never keeps the process alive on its own.
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of userAiLimits) {
+    if (now > entry.resetTime) userAiLimits.delete(id);
+  }
+}, 60 * 60 * 1000).unref();
+
 function checkAiRateLimit(userId, plan) {
   const now = Date.now();
   let limit;
@@ -70,22 +79,36 @@ router.post('/', verifyJWT, async (req, res) => {
       return res.status(500).json({ error: 'ai_service_unavailable' });
     }
 
-    const fwRes = await fetch(FIREWORKS_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.FIREWORKS_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 2000,
-        temperature: 0.2,
-        messages: [
-          { role: 'system', content: buildSystemPrompt() },
-          { role: 'user',   content: buildUserPrompt(elements) },
-        ],
-      }),
-    });
+    // Abort if Fireworks hangs, so a slow upstream can't tie up the connection.
+    const ac = new AbortController();
+    const timeout = setTimeout(() => ac.abort(), 30000);
+    let fwRes;
+    try {
+      fwRes = await fetch(FIREWORKS_URL, {
+        method: 'POST',
+        signal: ac.signal,
+        headers: {
+          'Authorization': `Bearer ${process.env.FIREWORKS_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: 2000,
+          temperature: 0.2,
+          messages: [
+            { role: 'system', content: buildSystemPrompt() },
+            { role: 'user',   content: buildUserPrompt(elements) },
+          ],
+        }),
+      });
+    } catch (e) {
+      clearTimeout(timeout);
+      if (e.name === 'AbortError') {
+        return res.status(504).json({ error: 'ai_timeout' });
+      }
+      throw e;
+    }
+    clearTimeout(timeout);
 
     if (!fwRes.ok) {
       const detail = await fwRes.text().catch(() => 'unknown');
@@ -238,26 +261,33 @@ function buildSystemPrompt() {
   ].join('\n');
 }
 
+// Strip quotes, backslashes, newlines and control chars, then hard-cap length.
+// Applied to EVERY user-supplied field that lands in the prompt so none of them
+// can be used to inject instructions to the model.
+function clean(val, max) {
+  return String(val == null ? '' : val)
+    .replace(/["\\]/g, '')
+    .replace(/[\n\r\t]/g, ' ')
+    .replace(/[^\x20-\x7E]/g, '')
+    .slice(0, max);
+}
+
 function buildUserPrompt(elements) {
   const list = elements.map((e) => {
     const c = e.context || {};
-    // SANITIZE: strip quotes, backslashes, newlines, control chars; hard cap length
-    const safeName = String(e.name || '')
-      .replace(/["\\]/g, '')           // remove quotes and backslashes
-      .replace(/[\n\r\t]/g, ' ')       // flatten whitespace
-      .replace(/[^\x20-\x7E]/g, '')    // strip non-printable
-      .slice(0, 50);                   // hard cap 50 chars
-
-    const safeText = c.text
-      ? String(c.text).slice(0, 30).replace(/["\\]/g, '')
-      : '';
+    const safeName  = clean(e.name, 50);
+    const safeClass = clean(e.className, 20) || 'GuiObject';
+    const safeHint  = clean(e.hint, 20) || 'generic';
+    const safeText  = clean(c.text, 30);
+    const safeZoneY = clean(c.zoneY, 12);
+    const safeZoneX = clean(c.zoneX, 12);
 
     const bits = [];
     if (safeText) bits.push(`text:"${safeText}"`);
-    if (c.zoneY || c.zoneX) bits.push(`pos:${c.zoneY || 'middle'}-${c.zoneX || 'center'}`);
+    if (safeZoneY || safeZoneX) bits.push(`pos:${safeZoneY || 'middle'}-${safeZoneX || 'center'}`);
     if (c.rowMember) bits.push('part-of-row');
     const ctx = bits.length ? ` {${bits.join(', ')}}` : '';
-    return `- ${safeName} (${e.className}) [hint: ${e.hint || 'generic'}]${ctx}`;
+    return `- ${safeName} (${safeClass}) [hint: ${safeHint}]${ctx}`;
   }).join('\n');
 
   return [

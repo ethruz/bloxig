@@ -1,24 +1,22 @@
-// routes/profile.js — Bloxig Profile & Settings Routes
+// routes/profile.js — Bloxig Profile & Settings Routes (hardened)
+// CHANGES:
+//   [SEC] Voucher codes moved to the DB (models/Voucher.js) — no more premium-
+//         granting codes hardcoded in source. Redemptions can be capped per code.
+//   [SEC] /generate-token now bumps tokenVersion (revokes old tokens), does NOT
+//         store the live JWT in the DB, and shows the token exactly once.
+//   [SEC] username/voucher inputs are string-cast before any DB query.
 const express = require('express');
 const router  = express.Router();
 const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
 const { isAuthenticated } = require('../middleware/isAuthenticated');
 const User    = require('../models/User');
+const Voucher = require('../models/Voucher');
 
 // Valid countries (import from auth)
 const { COUNTRIES } = require('./auth');
 
-// ── Voucher codes (hardcoded for now — move to DB later) ───────
-const VALID_VOUCHERS = {
-  // durationDays: how long a Pro plan lasts. null = no expiry (Lifetime).
-  'BLOXIG2026':  { plan: 'Pro',      discount: '1 month free',  durationDays: 30 },
-  'BCALAUNCH':   { plan: 'Pro',      discount: '3 months free', durationDays: 90 },
-  'LIFETIME50':  { plan: 'Lifetime', discount: '$50 off',       durationDays: null },
-};
-
 // ── Avatar picker presets (must match the grid in profile.ejs) ─
-// Stored value format: "style:seed:bgcolor"
 const AVATAR_PRESETS = [
   'adventurer:Felix:4f7bf7',  'adventurer:Aneka:7c5cff',
   'bottts:Rocket:3dd68c',     'bottts:Pixel:f5a623',
@@ -72,21 +70,21 @@ router.get('/:tab', isAuthenticated, (req, res) => {
 router.post('/update', isAuthenticated, async (req, res) => {
   const { firstName, lastName, country, bio } = req.body;
 
-  if (!firstName || firstName.trim().length === 0) {
+  if (!firstName || String(firstName).trim().length === 0) {
     req.flash('error', 'First name cannot be empty.');
     return res.redirect('/profile/account');
   }
-  if (!lastName || lastName.trim().length === 0) {
+  if (!lastName || String(lastName).trim().length === 0) {
     req.flash('error', 'Last name cannot be empty.');
     return res.redirect('/profile/account');
   }
 
   try {
     await User.findByIdAndUpdate(req.user._id, {
-      firstName: firstName.trim().substring(0, 50),
-      lastName:  lastName.trim().substring(0, 50),
-      country:   country  || req.user.country,
-      bio:       (bio || '').trim().substring(0, 200)
+      firstName: String(firstName).trim().substring(0, 50),
+      lastName:  String(lastName).trim().substring(0, 50),
+      country:   country ? String(country) : req.user.country,
+      bio:       String(bio || '').trim().substring(0, 200)
     });
 
     req.flash('success', 'Profile updated successfully.');
@@ -100,9 +98,8 @@ router.post('/update', isAuthenticated, async (req, res) => {
 
 // ── POST /profile/avatar — Save chosen avatar ─────────────────
 router.post('/avatar', isAuthenticated, async (req, res) => {
-  const choice = (req.body.avatar || '').trim();
+  const choice = String(req.body.avatar || '').trim();
 
-  // Empty string is allowed → resets to initials.
   if (choice !== '' && AVATAR_PRESETS.indexOf(choice) === -1) {
     req.flash('error', 'Invalid avatar selection.');
     return res.redirect('/profile/account');
@@ -121,10 +118,8 @@ router.post('/avatar', isAuthenticated, async (req, res) => {
 
 // ── POST /profile/username — Change username (once / 30 days) ─
 router.post('/username', isAuthenticated, async (req, res) => {
-  const raw = (req.body.username || '').trim().toLowerCase().replace(/^@/, '');
+  const raw = String(req.body.username || '').trim().toLowerCase().replace(/^@/, '');
 
-  // Render the account tab directly with an inline username message
-  // (avoids relying on flash surviving a redirect).
   const render = (msg, ok) => res.render('pages/profile', {
     title:       'Profile',
     tab:         'account',
@@ -144,7 +139,6 @@ router.post('/username', isAuthenticated, async (req, res) => {
     return render('That is already your username.', false);
   }
 
-  // Cooldown check
   const last = req.user.usernameChangedAt;
   if (last) {
     const daysSince = (Date.now() - new Date(last).getTime()) / (1000 * 60 * 60 * 24);
@@ -164,7 +158,6 @@ router.post('/username', isAuthenticated, async (req, res) => {
       username: raw,
       usernameChangedAt: new Date()
     });
-    // Refresh req.user so the page shows the new username immediately
     req.user.username = raw;
     req.user.usernameChangedAt = new Date();
 
@@ -190,7 +183,7 @@ router.post('/password', isAuthenticated, async (req, res) => {
   }
 
   const user = await User.findById(req.user._id);
-  const match = await bcrypt.compare(currentPassword, user.password_hash);
+  const match = await bcrypt.compare(String(currentPassword), user.password_hash);
   if (!match) return fail('Current password is incorrect.');
 
   const rules = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,20}$/;
@@ -215,9 +208,9 @@ router.post('/password', isAuthenticated, async (req, res) => {
   }
 });
 
-// ── POST /profile/voucher — Redeem voucher code ───────────────
+// ── POST /profile/voucher — Redeem voucher code (DB-backed) ───
 router.post('/voucher', isAuthenticated, async (req, res) => {
-  const code = (req.body.voucherCode || '').toUpperCase().trim();
+  const code = String(req.body.voucherCode || '').toUpperCase().trim();
 
   if (!code) {
     req.flash('error', 'Please enter a voucher code.');
@@ -229,52 +222,84 @@ router.post('/voucher', isAuthenticated, async (req, res) => {
     return res.redirect('/profile/redeem');
   }
 
-  const voucher = VALID_VOUCHERS[code];
-  if (!voucher) {
-    req.flash('error', 'Invalid or expired voucher code.');
-    return res.redirect('/profile/redeem');
-  }
-
   try {
+    const voucher = await Voucher.findOne({ code, active: true });
+    if (!voucher) {
+      req.flash('error', 'Invalid or expired voucher code.');
+      return res.redirect('/profile/redeem');
+    }
+
+    // Redemption cap (null = unlimited).
+    if (voucher.maxRedemptions !== null && voucher.timesRedeemed >= voucher.maxRedemptions) {
+      req.flash('error', 'This voucher code has reached its redemption limit.');
+      return res.redirect('/profile/redeem');
+    }
+
     const update = { voucherUsed: code };
+    let applied = false;
 
     if (voucher.plan === 'Lifetime') {
       update.subscription_status = 'Lifetime';
-      update.proExpiresAt = null;            // never expires
+      update.proExpiresAt = null;
+      applied = true;
     } else if (voucher.plan === 'Pro' && req.user.subscription_status === 'Free') {
       update.subscription_status = 'Pro';
       update.proExpiresAt = voucher.durationDays
         ? new Date(Date.now() + voucher.durationDays * 24 * 60 * 60 * 1000)
         : null;
+      applied = true;
     }
 
     await User.findByIdAndUpdate(req.user._id, update);
+    if (applied) {
+      await Voucher.updateOne({ _id: voucher._id }, { $inc: { timesRedeemed: 1 } });
+    }
+
     req.flash('success', `Voucher applied! ${voucher.discount} — enjoy ${voucher.plan}.`);
     res.redirect('/profile/redeem');
   } catch (err) {
+    console.error('[Profile] Voucher error:', err);
     req.flash('error', 'Failed to apply voucher. Try again.');
     res.redirect('/profile/redeem');
   }
 });
 
 // ── POST /profile/generate-token — Generate/regenerate API token
+// Bumps tokenVersion (invalidating every old token), signs a new one, and shows
+// it EXACTLY once. The live token is never stored in the DB.
 router.post('/generate-token', isAuthenticated, async (req, res) => {
   try {
+    const newVersion = (req.user.tokenVersion || 0) + 1;
+
+    await User.findByIdAndUpdate(req.user._id, {
+      tokenVersion: newVersion,
+      apiToken: null,               // stop storing the live JWT
+      apiTokenCreatedAt: new Date()
+    });
+
     const token = jwt.sign(
-      {
-        id:                  req.user._id,
-        email:               req.user.email,
-        subscription_status: req.user.subscription_status
-      },
+      { id: req.user._id, email: req.user.email, tv: newVersion },
       process.env.JWT_SECRET,
       { expiresIn: '365d' }
     );
 
-    await User.findByIdAndUpdate(req.user._id, { apiToken: token });
+    // Refresh the in-memory user so the page reflects the new state, then render
+    // the developer tab once with the freshly minted token.
+    req.user.tokenVersion = newVersion;
+    req.user.apiTokenCreatedAt = new Date();
+    req.user.apiToken = null;
 
-    req.flash('success', 'New API token generated. Copy it — it will be hidden after you leave this page.');
-    res.redirect('/profile/developer');
+    return res.render('pages/profile', {
+      title:     'Profile',
+      tab:       'developer',
+      error:     null,
+      success:   'New API token generated. Copy it now — it won\'t be shown again.',
+      countries: COUNTRIES,
+      avatarPresets: AVATAR_PRESETS,
+      freshToken: token            // shown once by the template
+    });
   } catch (err) {
+    console.error('[Profile] Token generate error:', err);
     req.flash('error', 'Failed to generate token.');
     res.redirect('/profile/developer');
   }

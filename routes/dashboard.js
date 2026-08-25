@@ -19,9 +19,9 @@ router.get('/', isAuthenticated, async (req, res) => {
 router.get('/token-reveal', isAuthenticated, (req, res) => {
   const token = jwt.sign(
     {
-      id:                  req.user._id,
-      email:               req.user.email,
-      subscription_status: req.user.subscription_status
+      id:    req.user._id,
+      email: req.user.email,
+      tv:    req.user.tokenVersion || 0   // revocation version
     },
     process.env.JWT_SECRET,
     { expiresIn: '30d' }

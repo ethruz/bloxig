@@ -7,6 +7,10 @@ const User    = require('../models/User');
 const Project = require('../models/Project');
 const Asset   = require('../models/Asset');
 
+// Escape user input before using it in a $regex so a crafted search can't cause
+// catastrophic backtracking (ReDoS).
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // ── GET /admin/login ──────────────────────────────────────────
 router.get('/login', (req, res) => {
   if (req.isAuthenticated() && req.user.isAdmin) {
@@ -92,9 +96,9 @@ router.get('/users', isAdmin, async (req, res) => {
     const query   = {};
 
     if (search) query.$or = [
-      { email: { $regex: search, $options: 'i' } },
-      { firstName: { $regex: search, $options: 'i' } },
-      { lastName: { $regex: search, $options: 'i' } }
+      { email: { $regex: escapeRegex(search), $options: 'i' } },
+      { firstName: { $regex: escapeRegex(search), $options: 'i' } },
+      { lastName: { $regex: escapeRegex(search), $options: 'i' } }
     ];
     if (filter) query.subscription_status = filter;
 
@@ -218,7 +222,7 @@ router.get('/projects', isAdmin, async (req, res) => {
     const limit = 20;
     const search = req.query.search || '';
     const query = search
-      ? { name: { $regex: search, $options: 'i' } }
+      ? { name: { $regex: escapeRegex(search), $options: 'i' } }
       : {};
 
     const [projects, total] = await Promise.all([

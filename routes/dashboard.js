@@ -5,6 +5,7 @@ const jwt     = require('jsonwebtoken');
 const { isAuthenticated } = require('../middleware/isAuthenticated');
 const Project = require('../models/Project');
 const ProjectImages = require('../models/ProjectImages');
+const User    = require('../models/User');
 
 
 // GET /dashboard
@@ -44,6 +45,9 @@ router.post('/projects/:id/delete', isAuthenticated, async (req, res) => {
     }
 
     await ProjectImages.deleteOne({ project: req.params.id });
+
+    // Keep the Free-tier counter in sync.
+    await User.updateOne({ _id: req.user._id }, { $inc: { projectCount: -1 } });
 
     return res.json({ success: true });
   } catch (err) {

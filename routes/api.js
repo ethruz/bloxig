@@ -28,9 +28,19 @@ router.post('/export', verifyJWT, async (req, res) => {
     return res.status(400).json({ error: 'json_layout_data is required.' });
   }
 
-  // Guard: bundled images (base64 PNGs) live inside json_layout_data. MongoDB
-  // documents cap at 16MB; reject oversized payloads with a clear message
-  // instead of a cryptic DB error. ~14MB leaves room for the rest of the doc.
+  // Fast reject: bail on an obviously-oversized body using the declared length,
+  // BEFORE the CPU-bound JSON.stringify below. This keeps a flood of huge
+  // payloads from stalling the single-threaded event loop on the stringify.
+  const declaredLen = parseInt(req.headers['content-length'] || '0', 10);
+  if (declaredLen && declaredLen > 16 * 1024 * 1024) {
+    return res.status(413).json({
+      error: 'payload_too_large',
+      message: 'This design is too large to sync (over ~16MB). Export fewer image-heavy frames at once.'
+    });
+  }
+
+  // Precise guard: the stored ProjectImages doc must stay under Mongo's 16MB
+  // per-doc cap. Only payloads that passed the fast check above reach this.
   try {
     const approxBytes = Buffer.byteLength(JSON.stringify(json_layout_data), 'utf8');
     if (approxBytes > 15.5 * 1024 * 1024) {
@@ -49,6 +59,7 @@ router.post('/export', verifyJWT, async (req, res) => {
     return res.status(400).json({ error: 'figma_frame_id is required.' });
   }
 
+  let claimedSlot = false; // true only between reserving a Free slot and creating the project
   try {
     // Does a project for THIS frame already exist? (update vs new)
     const existing = await Project.findOne({
@@ -56,21 +67,33 @@ router.post('/export', verifyJWT, async (req, res) => {
       figma_frame_id: frameId
     });
 
-    // Enforce the Free-tier project cap on NEW projects only.
+    // Enforce the Free-tier cap on NEW projects — ATOMICALLY. The old
+    // count-then-create was two ops, so concurrent requests could all read the
+    // same count, all pass, and all create (bypassing the limit). Instead we
+    // reserve a slot with ONE guarded $inc: it increments projectCount only
+    // while the user is under the limit, and returns null if they're already at
+    // it. Simultaneous requests can't bypass a single atomic update.
+    // Non-Free plans always $inc (no guard) so projectCount stays accurate for
+    // everyone — but they're never blocked.
     if (!existing) {
-      const plan = req.user.subscription_status || 'Free';
       const FREE_LIMIT = 3;
+      const plan = req.user.subscription_status || 'Free';
+      const guard = plan === 'Free' ? { projectCount: { $lt: FREE_LIMIT } } : {};
 
-      if (plan === 'Free') {
-        const count = await Project.countDocuments({ owner: req.user._id });
-        if (count >= FREE_LIMIT) {
-          return res.status(403).json({
-            error: 'limit_reached',
-            message: `Free plan is limited to ${FREE_LIMIT} projects. Upgrade to Pro for unlimited projects.`,
-            limit: FREE_LIMIT
-          });
-        }
+      const claimed = await User.findOneAndUpdate(
+        { _id: req.user._id, ...guard },
+        { $inc: { projectCount: 1 } },
+        { new: true }
+      );
+
+      if (!claimed) {
+        return res.status(403).json({
+          error: 'limit_reached',
+          message: `Free plan is limited to ${FREE_LIMIT} projects. Upgrade to Pro for unlimited projects.`,
+          limit: FREE_LIMIT
+        });
       }
+      claimedSlot = true;
     }
 
     // ── Split base64 images out of the layout ────────────────────
@@ -94,6 +117,10 @@ router.post('/export', verifyJWT, async (req, res) => {
       { new: true, upsert: true }
     );
 
+    // Project persisted — the reserved slot is now backed by a real document,
+    // so it must NOT be rolled back if a later step (image save) fails.
+    claimedSlot = false;
+
     // Persist the images blob alongside the project (or clear it if none).
     const hasImages = incomingImages && Object.keys(incomingImages).length > 0;
     if (hasImages) {
@@ -108,6 +135,11 @@ router.post('/export', verifyJWT, async (req, res) => {
 
     res.json({ success: true, project_id: project._id });
   } catch (err) {
+    if (claimedSlot) {
+      // We reserved a slot but the project never got created — give it back so
+      // the count doesn't drift upward on a failed export.
+      await User.updateOne({ _id: req.user._id }, { $inc: { projectCount: -1 } }).catch(() => {});
+    }
     console.error(err);
     res.status(500).json({ error: 'Export failed.' });
   }

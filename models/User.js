@@ -60,6 +60,10 @@ const UserSchema = new mongoose.Schema({
   lemon_portal_url:      { type: String, default: null },
   // When a cancelled subscription will actually end (grace period). Null while active — by design.
   subscription_ends_at:  { type: Date, default: null },
+  // Live count of this user's projects. Kept in sync by the export create path
+  // ($inc under a $lt guard) and by every project-delete path. Backs the atomic
+  // Free-tier cap (no count-then-create race). Backfill once; re-run to repair drift.
+  projectCount:          { type: Number, default: 0 },
 
   // ── Security ───────────────────────────────────────────────
   lastLogin:  { type: Date, default: null },

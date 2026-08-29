@@ -248,7 +248,12 @@ router.get('/projects', isAdmin, async (req, res) => {
 // ── POST /admin/projects/:id/delete ──────────────────────────
 router.post('/projects/:id/delete', isAdmin, async (req, res) => {
   try {
+    // Look up the owner first so we can keep their projectCount in sync.
+    const proj = await Project.findById(req.params.id).select('owner');
     await Project.findByIdAndDelete(req.params.id);
+    if (proj && proj.owner) {
+      await User.updateOne({ _id: proj.owner }, { $inc: { projectCount: -1 } });
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

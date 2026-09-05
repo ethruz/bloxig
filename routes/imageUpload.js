@@ -113,6 +113,11 @@ router.post('/upload-images', verifyJWT, async (req, res) => {
   if (names.length === 0) {
     return res.json({ success: true, imageMap: {}, errors: [] });
   }
+  if (names.length > MAX_UNIQUE_IMAGES) {
+    return res.status(413).json({
+      error: `too many images (${names.length}, max ${MAX_UNIQUE_IMAGES} per import)`
+    });
+  }
 
   // ── Dedupe by content hash ───────────────────────────────────
   // Anime UIs reuse the same texture many times (one ray/texture can appear

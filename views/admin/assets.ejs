@@ -1,0 +1,97 @@
+<%- include('partials/head') %>
+
+<% if (typeof success !== 'undefined' && success) { %>
+  <div class="flash flash--success" style="border-radius:var(--r-md);margin-bottom:18px;"><%= success %></div>
+<% } %>
+<% if (typeof error !== 'undefined' && error) { %>
+  <div class="flash flash--error" style="border-radius:var(--r-md);margin-bottom:18px;"><%= error %></div>
+<% } %>
+
+<!-- Create asset -->
+<div class="card" style="margin-bottom:24px;">
+  <div style="font-size:var(--text-sm);font-weight:500;margin-bottom:16px;">Add marketplace asset</div>
+  <form action="/admin/assets/create" method="POST" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+    <div class="form-field"><label class="form-label">Name</label><input class="form-input" name="name" required /></div>
+    <div class="form-field"><label class="form-label">Category</label><input class="form-input" name="category" required /></div>
+    <div class="form-field" style="grid-column:1 / -1;"><label class="form-label">Description</label><input class="form-input" name="description" required /></div>
+    <div class="form-field"><label class="form-label">Price (cents)</label><input class="form-input" type="number" name="price" value="0" min="0" /></div>
+    <div class="form-field"><label class="form-label">Pro only?</label><label style="display:flex;align-items:center;gap:8px;height:38px;font-size:var(--text-sm);color:var(--text-secondary)"><input type="checkbox" name="isPro" /> Requires Pro</label></div>
+    <div class="form-field"><label class="form-label">File URL</label><input class="form-input" name="file_url" placeholder="https://…" /></div>
+    <div class="form-field"><label class="form-label">Preview URL</label><input class="form-input" name="preview_url" placeholder="https://…" /></div>
+    <div style="grid-column:1 / -1;"><button type="submit" class="btn btn--accent">Create asset</button></div>
+  </form>
+</div>
+
+<div class="card" style="padding:0;overflow:hidden;">
+  <table class="admin-table">
+    <thead><tr><th>Asset</th><th>Category</th><th>Price</th><th>Access</th><th></th></tr></thead>
+    <tbody>
+    <% (assets || []).forEach(function(a){ %>
+      <tr id="asset-<%= a._id %>">
+        <td>
+          <div style="font-weight:500;"><%= a.name %></div>
+          <div class="mut" style="font-size:var(--text-xs)"><%= a.description %></div>
+        </td>
+        <td class="mut"><%= a.category %></td>
+        <td>$<%= ((a.price || 0) / 100).toFixed(2) %></td>
+        <td><% if (a.isPro) { %><span class="badge badge--accent">Pro</span><% } else { %><span class="badge">Free</span><% } %></td>
+        <td>
+          <div class="row-actions">
+            <button class="btn btn--ghost" onclick="toggleEdit('<%= a._id %>')">Edit</button>
+            <button class="btn btn--ghost" style="color:var(--danger);border-color:rgba(229,72,77,0.3)" onclick="delAsset('<%= a._id %>', '<%= a.name %>')">Delete</button>
+          </div>
+        </td>
+      </tr>
+      <tr id="edit-<%= a._id %>" style="display:none;">
+        <td colspan="5" style="background:var(--bg-base);">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:6px 0;">
+            <div class="form-field"><label class="form-label">Name</label><input class="form-input" id="e-name-<%= a._id %>" value="<%= a.name %>" /></div>
+            <div class="form-field"><label class="form-label">Category</label><input class="form-input" id="e-cat-<%= a._id %>" value="<%= a.category %>" /></div>
+            <div class="form-field" style="grid-column:1 / -1;"><label class="form-label">Description</label><input class="form-input" id="e-desc-<%= a._id %>" value="<%= a.description %>" /></div>
+            <div class="form-field"><label class="form-label">Price (cents)</label><input class="form-input" type="number" id="e-price-<%= a._id %>" value="<%= a.price || 0 %>" /></div>
+            <div class="form-field"><label class="form-label">Pro only?</label><label style="display:flex;align-items:center;gap:8px;height:38px;font-size:var(--text-sm);color:var(--text-secondary)"><input type="checkbox" id="e-pro-<%= a._id %>" <%= a.isPro ? 'checked' : '' %> /> Requires Pro</label></div>
+            <div class="form-field"><label class="form-label">File URL</label><input class="form-input" id="e-file-<%= a._id %>" value="<%= a.file_url || '' %>" /></div>
+            <div class="form-field"><label class="form-label">Preview URL</label><input class="form-input" id="e-prev-<%= a._id %>" value="<%= a.preview_url || '' %>" /></div>
+            <div style="grid-column:1 / -1;display:flex;gap:8px;"><button class="btn btn--accent" onclick="saveAsset('<%= a._id %>')">Save</button><button class="btn btn--ghost" onclick="toggleEdit('<%= a._id %>')">Cancel</button></div>
+          </div>
+        </td>
+      </tr>
+    <% }); %>
+    <% if (!assets || assets.length === 0) { %><tr><td colspan="5" class="mut" style="padding:24px 14px;">No assets yet.</td></tr><% } %>
+    </tbody>
+  </table>
+</div>
+
+<script>
+function toggleEdit(id){
+  var r = document.getElementById('edit-' + id);
+  r.style.display = (r.style.display === 'none') ? 'table-row' : 'none';
+}
+async function saveAsset(id){
+  var body = {
+    name:        document.getElementById('e-name-' + id).value,
+    category:    document.getElementById('e-cat-' + id).value,
+    description: document.getElementById('e-desc-' + id).value,
+    price:       document.getElementById('e-price-' + id).value,
+    isPro:       document.getElementById('e-pro-' + id).checked ? 'on' : '',
+    file_url:    document.getElementById('e-file-' + id).value,
+    preview_url: document.getElementById('e-prev-' + id).value
+  };
+  try{
+    var r = await fetch('/admin/assets/' + id + '/edit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    var e = await r.json().catch(function(){return {};});
+    if(r.ok && e.success){ location.reload(); } else { alert(e.error || 'Failed to save asset'); }
+  }catch(err){ alert('Network error saving asset'); }
+}
+async function delAsset(id, name){
+  if(!confirm('Delete asset "' + name + '"?')) return;
+  try{
+    var r = await fetch('/admin/assets/' + id + '/delete', { method:'POST', headers:{'Content-Type':'application/json'} });
+    var e = await r.json().catch(function(){return {};});
+    if(r.ok && e.success){ var row = document.getElementById('asset-' + id); var ed = document.getElementById('edit-' + id); if(row) row.remove(); if(ed) ed.remove(); }
+    else alert(e.error || 'Failed to delete asset');
+  }catch(err){ alert('Network error deleting asset'); }
+}
+</script>
+
+<%- include('partials/foot') %>

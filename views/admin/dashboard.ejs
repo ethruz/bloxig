@@ -1,0 +1,68 @@
+<%- include('partials/head') %>
+
+<div class="admin-grid">
+  <div class="card stat"><div class="n"><%= stats.totalUsers %></div><div class="l">Total users</div></div>
+  <div class="card stat"><div class="n"><%= stats.freeUsers %></div><div class="l">Free</div></div>
+  <div class="card stat"><div class="n" style="color:var(--accent)"><%= stats.proUsers %></div><div class="l">Pro</div></div>
+  <div class="card stat"><div class="n" style="color:var(--gold)"><%= stats.lifetimeUsers %></div><div class="l">Lifetime</div></div>
+  <div class="card stat"><div class="n"><%= stats.totalProjects %></div><div class="l">Projects</div></div>
+  <div class="card stat"><div class="n"><%= stats.totalAssets %></div><div class="l">Assets</div></div>
+</div>
+
+<div class="card" style="padding:20px;margin-bottom:24px;">
+  <div style="font-size:var(--text-sm);font-weight:500;margin-bottom:16px;">Signups — last 7 days</div>
+  <% var _max = (signupsByDay || []).reduce(function(m, d){ return Math.max(m, d.count); }, 1); %>
+  <% if (!signupsByDay || signupsByDay.length === 0) { %>
+    <div class="mut" style="font-size:var(--text-sm)">No signups in the last 7 days.</div>
+  <% } else { %>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <% signupsByDay.forEach(function(d){ %>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div class="mut" style="width:96px;font-size:var(--text-xs);font-family:var(--font-mono)"><%= d._id %></div>
+          <div style="flex:1;background:var(--bg-elevated);border-radius:var(--r-full);height:8px;overflow:hidden;">
+            <div style="height:100%;width:<%= Math.round(d.count / _max * 100) %>%;background:var(--accent);border-radius:var(--r-full);"></div>
+          </div>
+          <div style="width:28px;text-align:right;font-size:var(--text-sm)"><%= d.count %></div>
+        </div>
+      <% }); %>
+    </div>
+  <% } %>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div class="panel-title">Recent users</div>
+    <table class="admin-table">
+      <% (recentUsers || []).forEach(function(u){ %>
+        <tr>
+          <td>
+            <div style="font-weight:500;"><%= u.fullName || (u.firstName + ' ' + u.lastName) %></div>
+            <div class="mut" style="font-size:var(--text-xs)"><%= u.email %></div>
+          </td>
+          <td style="text-align:right;">
+            <% var _pc = u.subscription_status === 'Pro' ? 'badge--accent' : (u.subscription_status === 'Lifetime' ? 'badge--gold' : ''); %>
+            <span class="badge <%= _pc %>"><%= u.subscription_status %></span>
+          </td>
+        </tr>
+      <% }); %>
+      <% if (!recentUsers || recentUsers.length === 0) { %><tr><td class="mut">No users yet.</td></tr><% } %>
+    </table>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div class="panel-title">Recent projects</div>
+    <table class="admin-table">
+      <% (recentProjects || []).forEach(function(p){ %>
+        <tr>
+          <td>
+            <div style="font-weight:500;"><%= p.name %></div>
+            <div class="mut" style="font-size:var(--text-xs)"><%= p.owner ? p.owner.email : '—' %></div>
+          </td>
+          <td class="mut" style="text-align:right;font-size:var(--text-xs)"><%= new Date(p.updatedAt).toLocaleDateString() %></td>
+        </tr>
+      <% }); %>
+      <% if (!recentProjects || recentProjects.length === 0) { %><tr><td class="mut">No projects yet.</td></tr><% } %>
+    </table>
+  </div>
+</div>
+
+<%- include('partials/foot') %>

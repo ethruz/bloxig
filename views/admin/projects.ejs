@@ -1,0 +1,60 @@
+<%- include('partials/head') %>
+
+<form class="toolbar" method="GET" action="/admin/projects">
+  <input class="form-input" type="text" name="search" value="<%= search %>" placeholder="Search project name…" style="min-width:240px;" />
+  <button type="submit" class="btn btn--ghost">Search</button>
+  <span class="mut" style="font-size:var(--text-sm);margin-left:auto;"><%= total %> project<%= total === 1 ? '' : 's' %></span>
+</form>
+
+<div class="card" style="padding:0;overflow:hidden;">
+  <table class="admin-table">
+    <thead><tr><th>Project</th><th>Owner</th><th>Plan</th><th>Updated</th><th></th></tr></thead>
+    <tbody>
+    <% (projects || []).forEach(function(p){ %>
+      <tr id="proj-<%= p._id %>">
+        <td style="font-weight:500;"><%= p.name %></td>
+        <td class="mut">
+          <% if (p.owner) { %>
+            <%= (p.owner.firstName || '') + ' ' + (p.owner.lastName || '') %>
+            <div style="font-size:var(--text-xs)"><%= p.owner.email %></div>
+          <% } else { %>—<% } %>
+        </td>
+        <td>
+          <% var _s = p.owner ? p.owner.subscription_status : null; %>
+          <% var _pc = _s === 'Pro' ? 'badge--accent' : (_s === 'Lifetime' ? 'badge--gold' : ''); %>
+          <% if (_s) { %><span class="badge <%= _pc %>"><%= _s %></span><% } else { %><span class="mut">—</span><% } %>
+        </td>
+        <td class="mut" style="font-size:var(--text-xs)"><%= new Date(p.updatedAt).toLocaleDateString() %></td>
+        <td>
+          <div class="row-actions">
+            <button class="btn btn--ghost" style="color:var(--danger);border-color:rgba(229,72,77,0.3)" onclick="delProject('<%= p._id %>', '<%= p.name %>')">Delete</button>
+          </div>
+        </td>
+      </tr>
+    <% }); %>
+    <% if (!projects || projects.length === 0) { %><tr><td colspan="5" class="mut" style="padding:24px 14px;">No projects match.</td></tr><% } %>
+    </tbody>
+  </table>
+</div>
+
+<% if (pages > 1) { %>
+  <div class="pager">
+    <% for (var i = 1; i <= pages; i++) { %>
+      <a class="<%= i === page ? 'on' : '' %>" href="/admin/projects?page=<%= i %>&search=<%= encodeURIComponent(search) %>"><%= i %></a>
+    <% } %>
+  </div>
+<% } %>
+
+<script>
+async function delProject(id, name){
+  if(!confirm('Delete project "' + name + '"? This cannot be undone.')) return;
+  try{
+    var r = await fetch('/admin/projects/' + id + '/delete', { method:'POST', headers:{'Content-Type':'application/json'} });
+    var e = await r.json().catch(function(){return {};});
+    if(r.ok && e.success){ var row = document.getElementById('proj-' + id); if(row) row.remove(); }
+    else alert(e.error || 'Failed to delete project');
+  }catch(err){ alert('Network error deleting project'); }
+}
+</script>
+
+<%- include('partials/foot') %>

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %> — Bloxig</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="/css/global.css" />
+</head>
+<body>
+  <section style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:48px 20px;">
+    <div style="width:100%;max-width:380px;">
+      <div style="margin-bottom:28px;">
+        <h1 style="font-size:var(--text-2xl);letter-spacing:-0.03em;margin-bottom:6px;">Admin sign in</h1>
+        <p style="font-size:var(--text-sm);color:var(--text-secondary);">Restricted to admin accounts.</p>
+      </div>
+
+      <% if (typeof error !== 'undefined' && error) { %>
+        <div style="background:rgba(229,72,77,0.08);border:1px solid rgba(229,72,77,0.2);color:var(--danger);font-size:var(--text-sm);padding:10px 14px;border-radius:var(--r-md);margin-bottom:18px;"><%= error %></div>
+      <% } %>
+
+      <form action="/admin/login" method="POST" style="display:flex;flex-direction:column;gap:16px;">
+        <div class="form-field">
+          <label class="form-label" for="email">Email</label>
+          <input class="form-input" type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email" />
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="password">Password</label>
+          <input class="form-input" type="password" id="password" name="password" placeholder="••••••••" required autocomplete="current-password" />
+        </div>
+        <button type="submit" class="btn btn--primary btn--full" style="height:42px;margin-top:4px;">Sign in</button>
+      </form>
+
+      <p style="margin-top:22px;font-size:var(--text-sm);color:var(--text-tertiary);text-align:center;">
+        <a href="/" style="color:var(--text-secondary);">← Back to site</a>
+      </p>
+    </div>
+  </section>
+</body>
+</html>

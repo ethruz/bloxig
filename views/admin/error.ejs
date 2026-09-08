@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %> — Bloxig</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="/css/global.css" />
+</head>
+<body>
+  <section style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:48px 20px;text-align:center;">
+    <div style="max-width:420px;">
+      <h1 style="font-size:var(--text-xl);letter-spacing:-0.02em;margin-bottom:10px;"><%= title %></h1>
+      <p style="font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;margin-bottom:24px;"><%= (typeof message !== 'undefined' && message) ? message : 'Something went wrong.' %></p>
+      <a href="/admin" class="btn btn--ghost">Back to dashboard</a>
+    </div>
+  </section>
+</body>
+</html>

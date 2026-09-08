@@ -1,0 +1,75 @@
+<%- include('partials/head') %>
+
+<form class="toolbar" method="GET" action="/admin/users">
+  <input class="form-input" type="text" name="search" value="<%= search %>" placeholder="Search name or email…" style="min-width:240px;" />
+  <select class="form-input" name="plan">
+    <option value="">All plans</option>
+    <option value="Free"     <%= filter === 'Free'     ? 'selected' : '' %>>Free</option>
+    <option value="Pro"      <%= filter === 'Pro'      ? 'selected' : '' %>>Pro</option>
+    <option value="Lifetime" <%= filter === 'Lifetime' ? 'selected' : '' %>>Lifetime</option>
+  </select>
+  <button type="submit" class="btn btn--ghost">Filter</button>
+  <span class="mut" style="font-size:var(--text-sm);margin-left:auto;"><%= total %> user<%= total === 1 ? '' : 's' %></span>
+</form>
+
+<div class="card" style="padding:0;overflow:hidden;">
+  <table class="admin-table">
+    <thead><tr><th>User</th><th>Plan</th><th>Country</th><th>Joined</th><th></th></tr></thead>
+    <tbody>
+    <% (users || []).forEach(function(u){ %>
+      <tr id="row-<%= u._id %>">
+        <td>
+          <div style="font-weight:500;"><%= u.fullName || (u.firstName + ' ' + u.lastName) %></div>
+          <div class="mut" style="font-size:var(--text-xs)"><%= u.email %> · @<%= u.username %></div>
+        </td>
+        <td>
+          <select class="form-input" onchange="changePlan('<%= u._id %>', this.value)">
+            <option value="Free"     <%= u.subscription_status === 'Free'     ? 'selected' : '' %>>Free</option>
+            <option value="Pro"      <%= u.subscription_status === 'Pro'      ? 'selected' : '' %>>Pro</option>
+            <option value="Lifetime" <%= u.subscription_status === 'Lifetime' ? 'selected' : '' %>>Lifetime</option>
+          </select>
+        </td>
+        <td class="mut"><%= u.country || '—' %></td>
+        <td class="mut" style="font-size:var(--text-xs)"><%= new Date(u.createdAt).toLocaleDateString() %></td>
+        <td>
+          <div class="row-actions">
+            <button class="btn btn--ghost" style="color:var(--danger);border-color:rgba(229,72,77,0.3)"
+              onclick="delUser('<%= u._id %>', '<%= u.email %>')">Delete</button>
+          </div>
+        </td>
+      </tr>
+    <% }); %>
+    <% if (!users || users.length === 0) { %><tr><td colspan="5" class="mut" style="padding:24px 14px;">No users match.</td></tr><% } %>
+    </tbody>
+  </table>
+</div>
+
+<% if (pages > 1) { %>
+  <div class="pager">
+    <% for (var i = 1; i <= pages; i++) { %>
+      <a class="<%= i === page ? 'on' : '' %>" href="/admin/users?page=<%= i %>&search=<%= encodeURIComponent(search) %>&plan=<%= encodeURIComponent(filter) %>"><%= i %></a>
+    <% } %>
+  </div>
+<% } %>
+
+<script>
+async function changePlan(id, plan){
+  try{
+    const r = await fetch('/admin/users/' + id + '/plan', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ plan })
+    });
+    if(!r.ok){ const e = await r.json().catch(function(){return {};}); alert(e.error || 'Failed to update plan'); }
+  }catch(err){ alert('Network error updating plan'); }
+}
+async function delUser(id, email){
+  if(!confirm('Delete ' + email + ' and all their projects? This cannot be undone.')) return;
+  try{
+    const r = await fetch('/admin/users/' + id + '/delete', { method:'POST', headers:{'Content-Type':'application/json'} });
+    const e = await r.json().catch(function(){return {};});
+    if(r.ok && e.success){ var row = document.getElementById('row-' + id); if(row) row.remove(); }
+    else alert(e.error || 'Failed to delete user');
+  }catch(err){ alert('Network error deleting user'); }
+}
+</script>
+
+<%- include('partials/foot') %>

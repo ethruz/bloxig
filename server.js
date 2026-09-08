@@ -28,6 +28,7 @@ require('./config/passport')(passport);
 const authRoutes        = require('./routes/auth');
 const dashboardRoutes   = require('./routes/dashboard');
 const marketplaceRoutes = require('./routes/marketplace');
+const adminRoutes       = require('./routes/admin');
 const apiRoutes         = require('./routes/api');
 const webhookRoutes     = require('./routes/webhooks');
 const profileRoutes     = require('./routes/profile');
@@ -202,6 +203,7 @@ app.use((req, res, next) => {
 
 // ── Mount Routes ──────────────────────────────────────────────
 app.use('/auth',         authRoutes);
+app.use('/admin',        adminRoutes);
 app.use('/dashboard',    dashboardRoutes);
 app.use('/marketplace',  marketplaceRoutes);
 app.use('/profile',      profileRoutes);

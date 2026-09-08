@@ -62,9 +62,9 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
       scriptSrcAttr: ["'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https://api.dicebear.com"],
       connectSrc: ["'self'"],
@@ -73,7 +73,7 @@ app.use(helmet({
       frameAncestors: ["'self'"]
     }
   },
-  crossOriginResourcePolicy: { policy: 'same-origin' }
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 
 // ── Rate Limiters ─────────────────────────────────────────────
